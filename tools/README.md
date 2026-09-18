@@ -75,6 +75,12 @@ tools/
     build_singlefile.sh      ← 构建 + 打包成单文件
     verify_tauri_app.sh      ← 增量重建计时 + 用 --log 证明实际加载了哪些文件
     test_singlefile.sh       ← 跑起来查 WebView2 用户目录/缓存/origin
+  music-patch/               ← MiniGame_C 音乐定制（详见第九节）
+    apply_music.py           ← 把音乐改动重放到 docs/ 的三个压缩文件上（幂等）
+    _audio.py                ← 音频共享库：ffmpeg 定位 / 探测 / 响度 / 闭环转码
+    audio_report.py          ← 体检 13 条 RZ 音轨：规格 / 响度 / 时长一致性
+    normalize_music.py       ← 把响度与峰值统一到同一把尺子（可回滚）
+    import_track.py          ← 把一段视频/音频换成某条 RZ 音轨
 ```
 
 **三处共用同一套内核**：`HttpMime`（MIME 表）/ `PayloadArchive`（尾部归档读取）/ `MiniHttpServer`（HTTP 服务器）
@@ -309,4 +315,149 @@ python -X utf8 tools/xxx.py    # 单次
 ```
 
 注意 `chcp 65001` **没用** —— 那只改 cmd.exe 的代码页，对 mintty 的 pty 管道毫无影响。
+
+---
+
+## 九、RZ 音轨：规格、响度统一、换音频
+
+`music-patch/` 下五个文件：
+
+| 文件 | 职责 |
+|---|---|
+| `apply_music.py` | 把音乐定制**重放到上游压缩文件**上（幂等，可反复跑） |
+| `_audio.py` | 音频共享库：ffmpeg 定位 / 探测 / 响度测量 / 闭环转码 |
+| `audio_report.py` | 体检 13 条 RZ 音轨：**来源** / 规格 / 响度 / 时长一致性（只读） |
+| `normalize_music.py` | 把响度与峰值统一到同一把尺子（可回滚） |
+| `import_track.py` | 把一段视频 / 音频换成某条 RZ 音轨 |
+
+### 9.1 统一规格（house spec）
+
+**先分清来源，再谈统一。** 13 条 RZ 音轨其实是两类东西：
+
+| 来源 | 条数 | 判据 | 该怎么办 |
+|---|---|---|---|
+| **自制轨** | 3（Egypt / Pirate / Beach） | `musicLength` 被改成循环点（182.5） | **这才是要统一的对象** |
+| **官方原声** | 10 | `musicLength` 仍是原值（181 / Victory 3） | **保持原样 = 忠实官方** |
+
+官方那 10 条与官方 `UB_*` 同源，它们的响度差异是**官方母带本身就有的**
+（官方 UB 集跨曲 −10.5 ~ −17.7 LUFS，极差 7.2 LU）。把它们"统一"了反而是偏离官方，
+还白叠一代重编码损失。所以两个工具都**默认排除官方原声**，要动得显式加
+`--include-official`。判据与工作区的 `rz_map_check.py` 同一套，保证口径一致。
+
+自制轨对齐的口径：
+
+| 项目 | 值 | 依据 |
+|---|---|---|
+| 编码 | MP3 `libmp3lame` CBR **160 kbps** | 那三条实测值 |
+| 采样率 | **48000 Hz** | 同（官方集合里混了 44.1k / **32k**，那是官方的，不动） |
+| 声道 | **2** | 全部一致 |
+| 响度 I | **-14.5 LUFS** | 官方 UB 集均值 ≈ −14.2，同档 |
+| 真峰值 | **≤ -0.5 dBFS** | 比官方更保守（官方普遍压在 0 附近甚至超过，本身在削波） |
+
+> **`loudnorm linear=true` 打不到 -14.5 是正常的。** 整轨只施加一个线性增益、不改动态，
+> 源峰值余量不够时增益会被 TP 上限压住 —— 既有那三条就停在 **-14.8 / -14.8 / -14.9**，
+> 这是**刻意保留**的既有行为，不是偏差。要严格打到 -14.5 得用 `--method gain-limit`（削峰换准）。
+
+> **限幅器要压得比目标更低**：`alimiter` 限的是**采样峰值**，而 `ebur128 peak=true`
+> 量的是**真峰值**（含交织点）。实测编完再解码，真峰值比限值高 ~0.2~0.3 dB，
+> 所以 `_audio.LIMIT_MARGIN_DB = 0.3` 是必需的补偿，不是保守。
+
+### 9.2 换音频时必须**一起改三个数字**，少一个就出 bug
+
+| # | 位置 | 为什么 |
+|---|---|---|
+| 1 | `native/<前两位>/<uuid>.mp3` | 音频本体 |
+| 2 | `TRACKS[].duration` → import json 的 `_duration` | Cocos 的资源元数据 |
+| 3 | `TRACKS[].music_len` → Musics 的 `musicLength` | **index.js 的循环/切歌点** |
+
+第 3 条最容易漏，而它是硬约束。`index.js` 里是：
+
+```js
+this.leftRepeat>0 && this.currentPlayingComponent.currentTime >= this.currentMusic.musicLength
+  && this.changeLoopPlayer()
+```
+
+钢琴曲那条更直接：`audioSourcePiano.currentTime > this.pianoLength && (currentTime=0)` —— 硬循环回 0。
+
+⇒ `(duration - music_len)` 那段是**永远播不到的尾音**（现有集合 3.4~4.5s，是渐弱+静音）。
+换了音频不改这两个数：新的比它短 → 永远等不到切歌点；比它长 → 被提前切断。
+
+**`music_len` 怎么定**：`import_track.py` 默认**沿用该轨原有尾长**（保持手感），
+也可 `--tail` / `--music-length` / `--full` 覆盖。
+
+### 9.3 把一段视频换成某条音轨
+
+```bash
+# 先看有哪些音轨和它们当前的时长/循环点
+python tools/music-patch/import_track.py --list
+
+# 预览（不动任何文件，产物留一份到 %TEMP% 便于试听）
+python tools/music-patch/import_track.py --track RZ_Egypt --src "D:/videos/xxx.mp4"
+
+# 真写回
+python tools/music-patch/import_track.py --track RZ_Egypt --src "D:/videos/xxx.mp4" --apply
+
+# 只要视频中间一段
+python tools/music-patch/import_track.py --track RZ_Egypt --src xx.mp4 --start 12 --end 95 --apply
+```
+
+`--apply` 会按顺序做：备份原 mp3（仓库**外**）→ 写新 mp3 → 改 `apply_music.py` 那一行
+→ 重跑 `apply_music.py --gen-import` → 重跑 `--verify`。
+
+响度对齐方式（`--method`，两处脚本通用）：
+
+| 方法 | 做法 | 特点 |
+|---|---|---|
+| `loudnorm`（**默认**） | 两遍 `loudnorm linear=true` | 只加一个线性增益，**完全不改动态**；被 TP 上限压住时停在 -14.8 附近 |
+| `gain-limit` | 线性增益 + 一级 `alimiter` + 闭环重测 | 能真正打到 -14.5（±0.2 LU），代价是削掉几个越界峰 |
+
+> 项目既有的换音频流程还有一份**仓库外**的脚本 `replace_rz_audio.sh`
+> （唯一入口文档 `RZ_AUDIO_REPLACEMENT.md`，在本机会话工作区），
+> 功能与本文这套 Python 工具重叠：它是 5 步流程 + 服务器字节复测 + 操作日志。
+> 两套都可用；`audio_report.py` / `normalize_music.py` 是 Python 侧独有的（体检 / 统一）。
+
+流程要点：
+
+1. **从视频抽音频**（`-vn`，可 `--stream 0:a:1` 选轨）。
+2. **裁首尾静音**（`silencedetect`, -50dB）。默认只裁 ≥0.15s 的 —— 更短的多半只是
+   MP3 编码器 padding，裁了没意义。视频开头几秒静音**必须裁**，否则循环时每次都听见空白。
+3. **统一规格 + 响度闭环**（见 9.4）。这一步不能省 —— 不然刚统一好的音量又被新音频打乱。
+4. **改数字 + 重建 + 校验**。
+
+### 9.4 响度闭环：为什么不能"一次算准"
+
+```bash
+# 体检（默认只读）：来源 / 规格 / 响度 / 时长一致性
+python tools/music-patch/audio_report.py --repo D:/git/pvzge_web
+python tools/music-patch/audio_report.py --repo D:/git/pvzge_web --track RZ_Egypt
+python tools/music-patch/audio_report.py --repo D:/git/pvzge_web --include-official
+
+# 统一响度（默认预览 + 只取自制轨，--apply 才写）
+python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web
+python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web --apply --tracks RZ_Egypt
+python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web --restore latest   # 整批回滚
+```
+
+`audio_report.py` 把"自制轨彼此是否一致"和"官方原声的跨世界差异"分开判：
+前者才是**音量统一**要解决的问题，后者是官方设计、只当情报看。所以官方轨的
+削波（Iceage +0.6 等）和低码率**不会**被算成问题。
+
+增益是**线性**的，理论上 `增益 = 目标 - 实测` 一步到位。但实测有两个偏差：
+
+1. **动了限幅就必偏**：限幅削掉峰值的同时会把整轨响度一起拉低。
+2. **就算不限幅，第一轮也稳定低约 0.4 LU**（重采样 + MP3 编解码 + ebur128 相对门限
+   共同造成）。换 4 条不同的轨试，全都是 0.4，所以别去"修公式"，直接量了再修。
+
+⇒ `_audio.fit_to_target()` 做成闭环：每轮重新量 ebur128，拿误差回灌增益（阻尼 0.9），
+最多 3 轮。**实测 2 轮收敛到 ±0.1 LU**。每轮都**从原始文件重新编码**，不叠加代际损失。
+
+已经达标的轨会被跳过（阈值 0.5 LU，与体检脚本一致；不是闭环那个 0.2）——
+重新编码是有代际损失的，能省一次就省一次。**当前状态下 3 条自制轨全部已达标，
+什么都不用做。**
+
+### 9.5 依赖
+
+`ffmpeg` / `ffprobe`：`winget install Gyan.FFmpeg`。
+winget 装的**可能不在 PATH**（或在 `%LOCALAPPDATA%\Microsoft\WinGet\Links`），
+`_audio.find_tool()` 会自动去那儿找，并兼容 `.EXE` 大写后缀。
 
