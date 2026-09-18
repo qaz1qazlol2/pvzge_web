@@ -29,6 +29,10 @@ bash build.sh            # 全做
 > 所以必须把 `dist\` 里的 exe 和 `docs\` 放一起（或用 `--root` 指过去）。
 > 带「**-单文件**」后缀的三个把资源内嵌进 exe，**单个文件即可分发**。
 
+> **版本号 / 图标**：五个产物的版本号统一跟随游戏本体（当前 `0.14.0`），
+> 图标统一取上游发布 exe 里的那一份。两者都由脚本自动同步、不手工改，
+> 见下面「七、版本号与图标」。
+
 > 体积大是因为游戏资源本身 1.39 GB / 8418 个文件。
 > 文本类（`.js/.json/.html/.wasm`…）走 deflate 压缩，mp3/png 原样存储。
 
@@ -43,9 +47,13 @@ HTTP 服务器，把 `http://pvzge.localhost/`（Tauri 自定义协议）或 `12
 ```
 build.sh                     ← 一键入口（仓库根）
 tools/
+  extract_icon.py            ← 从上游发布的 exe 里提取图标 → 写入三处构建输入（可复现/可校验）
+  sync_version.py            ← 版本号唯一真源（docs/index.html）→ 分发到 5 处配置
+  verify_exe.py              ← 校验成品：五个 exe 的版本号 / 图标是否真的都一致
   launcher/                  ← .NET/WinForms + WebView2 启动器 + 打包/校验/本地服务器
     src/Program.cs           ← 启动器主体（内含 HttpMime / PayloadArchive / MiniHttpServer 三个内核类）
     src/PvZGE-Launcher.csproj
+    src/icon.ico             ← 图标（由 extract_icon.py 生成，勿手改）
     pack.py                  ← 把资源目录追加到 exe 尾部
     verify_pack.py           ← 校验归档：索引可读 + 解压内容与磁盘逐字节一致
     server.py                ← 纯 Python 本地服务器（不想编译时的替代方案）
@@ -54,11 +62,13 @@ tools/
     src/Program.cs
     src/Shared.cs            ← 自动生成（勿手改），见下
     src/PvZGE-WebServer.csproj
+    src/icon.ico             ← 图标（由 extract_icon.py 生成，勿手改）
     extract_shared.py        ← 从 launcher/src/Program.cs 抽取三个内核类 → src/Shared.cs
     test_ws.sh               ← 起服务并实测：首页/mp3字节/wasm MIME/Range/目录穿越
   tauri-app/                 ← Tauri 桌面壳（Rust）
     src-tauri/src/main.rs    ← 归档读取 + 协议 handler + 窗口
     src-tauri/{Cargo.toml,Cargo.lock,build.rs,tauri.conf.json,capabilities/,icons/}
+    src-tauri/icons/icon.ico ← 图标（由 extract_icon.py 生成，勿手改）
     boot/index.html          ← 加载中占位页（frontendDist）
     build_tauri.sh           ← 手工注入 MSVC/SDK 环境后 cargo build（不用 vcvars64.bat）
     build_singlefile.sh      ← 构建 + 打包成单文件
@@ -140,3 +150,100 @@ index: {"v":1,"e":[["相对路径", offset, storedLen, rawLen, method], ...]}
    表现为页面全白或音频 `204 (no response)`。让它排除本地地址。
 3. 换了音频后浏览器媒体缓存顽固，**Ctrl+Shift+R** 强刷。
 4. 单文件 exe 打完先跑一次 `verify_pack.py`，比启动起来看白屏快得多。
+
+---
+
+## 七、版本号与图标
+
+五个产物都必须**同一个版本号**、**同一个图标**，而且两件事都不能手改 ——
+手改必然漂移（历史上就漂过：Tauri 是 `0.14.0`，两个 .NET 项目是 `1.0.0`；
+图标也不一致：Tauri 那份是单尺寸 BMP，另外三个干脆没有图标）。
+
+### 7.1 版本号：真源是游戏本体
+
+唯一真源 = **`docs/index.html` 的 `<title>`**（当前是 `PvZ2 Gardendless Online | 0.14.0`）。
+`docs/` 整块是上游发布的游戏本体，我们不动它；它升到 `0.15`，我们构建出来的包就自动是 `0.15`。
+
+```bash
+python tools/sync_version.py             # 探测 + 写入 5 处（构建时的默认行为）
+python tools/sync_version.py --print     # 看 5 处当前值
+python tools/sync_version.py --value     # 只输出解析到的版本号（给脚本用）
+python tools/sync_version.py --check     # 只校验，不一致退出码 2（CI 用）
+python tools/sync_version.py --dry-run   # 只显示会改什么，不落盘
+```
+
+真源优先级：`--set` > `--from-exe` > `--from-upstream` > `docs/index.html`（默认，离线）。
+
+```bash
+python tools/sync_version.py --set 0.15.0                     # 上游改了标题格式 → 手工指定
+python tools/sync_version.py --from-exe D:/pvzge-0.15.0.exe   # 直接读发布 exe 的版本资源
+python tools/sync_version.py --from-upstream                  # 读 upstream 远端最高 tag（需网络）
+```
+
+`--check` 校验的就是这 5 处：
+
+| 文件 | 字段 | 影响到 |
+|---|---|---|
+| `tools/tauri-app/src-tauri/tauri.conf.json` | `version` | Tauri 壳的 FileVersion / ProductVersion |
+| `tools/tauri-app/src-tauri/Cargo.toml` | `[package] version` | crate 版本 |
+| `tools/tauri-app/src-tauri/Cargo.lock` | 本包条目 | 免得构建完 lock 变脏 / `--locked` 失败 |
+| `tools/launcher/src/PvZGE-Launcher.csproj` | `@version` 标记块 | 启动器本体 + 它的「-单文件」版 |
+| `tools/webserver/src/PvZGE-WebServer.csproj` | `@version` 标记块 | Web 服务器本体 + 它的「-单文件」版 |
+
+`bash build.sh` 每次构建前都会自动跑一次同步并把结果打出来；
+`bash build.sh check` 里也会顺带给出一致性检查。所以**不需要手工改任何版本号**。
+
+两个 .NET 项目里额外关掉了 `IncludeSourceRevisionInInformationalVersion`：
+.NET 默认会把 git 提交哈希拼在 `ProductVersion` 后面（`1.0.0+19254fe5ad…`），
+在资源管理器「属性 → 详细信息」里看着就像版本不一致。
+
+### 7.2 图标：从上游发布的 exe 里提取
+
+唯一真源 = **上游发布 exe 的资源段**。例如 `pvzge-0.14.0.exe` 里是 6 个尺寸
+（16 / 24 / 32 / 48 / 64 / 256，全部 32bpp、PNG 编码，合计 138 998 字节）——
+按尺寸补齐，任务栏、资源管理器各视图、Alt+Tab 才都是清晰的。
+
+```bash
+python tools/extract_icon.py D:/pvzge-0.14.0.exe           # 只看图标信息（不写文件）
+python tools/extract_icon.py D:/pvzge-0.14.0.exe --check   # 校验三处是否与它一致
+python tools/extract_icon.py D:/pvzge-0.14.0.exe --write   # 提取并写入三处
+python tools/extract_icon.py D:/pvzge-0.14.0.exe -o my.ico # 只导出成单个 .ico 文件
+```
+
+| 文件 | 谁用 |
+|---|---|
+| `tools/tauri-app/src-tauri/icons/icon.ico` | Tauri 壳（`tauri.conf.json` 的 `bundle.icon`） |
+| `tools/launcher/src/icon.ico` | .NET 启动器（csproj 的 `<ApplicationIcon>`） |
+| `tools/webserver/src/icon.ico` | .NET Web 服务器（同上） |
+
+> **图标必须构建期嵌进去，不能事后往成品 exe 里塞。**
+> 两个「-单文件」版本是 `pack.py` 把基础 exe 整段复制、再往尾部追加 1.4 GB 归档，
+> PE 头和资源段都是从基础 exe 继承的；事后改资源段会让尾部归档的偏移全部失效，
+> **整个包直接报废**。所以「换图标」= 改上面三处 + 重新 `bash build.sh`。
+
+> Tauri 的图标是 `build.rs` 生成 `.rc` 再编译进 PE 的，属于该 crate 的构建产物。
+> 万一换了图标但产物没跟着变，清掉该 crate 的构建缓存再编：
+> `rm -rf tools/tauri-app/src-tauri/target/release/build/pvzge-*`
+
+### 7.3 构建完怎么确认两件事都对了
+
+`bash build.sh` 跑完会自动调一次校验，也可以随时单独跑：
+
+```bash
+python tools/verify_exe.py                 # 默认检查 dist/ 下那 5 个产物
+python tools/verify_exe.py --dist D:/发布   # 指定产物目录
+python tools/verify_exe.py a.exe b.exe     # 指定具体文件
+```
+
+它逐个读出真实的 PE 资源（不看配置文件），对比 **FileVersion** 和**图标内容的 sha256**，
+全部一致返回 0、有不一致返回 2，可直接挂 CI。
+
+### 7.4 上游升版本时的完整流程
+
+```bash
+git fetch upstream && git merge upstream/master   # 拿到新版游戏本体（含新的 docs/index.html）
+python tools/sync_version.py --print              # 确认版本号已经跟着变
+# 如果新版上游 exe 换了图标：
+python tools/extract_icon.py <新版exe> --write
+bash build.sh                                     # 版本号自动同步，5 个产物一次成型 + 自动校验
+```

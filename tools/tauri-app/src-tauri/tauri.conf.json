@@ -14,6 +14,14 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/icon.ico"]
+    "icon": ["icons/icon.ico"],
+
+    "publisher": "PvZ2 Gardendless",
+    "copyright": "Plants vs Zombies 2 Gardendless",
+    "homepage": "https://pvzge.com",
+    "license": "Apache-2.0",
+    "category": "Game",
+    "shortDescription": "PvZ2 Gardendless 桌面版（单文件，内嵌全部游戏资源）",
+    "longDescription": "完全重制的《植物大战僵尸 2》网页版 —— PvZ2 Gardendless 的 Windows 桌面单文件版。基于 Tauri + WebView2，游戏资源以追加归档的形式内嵌在 exe 尾部，双击即玩，无需解压、无需额外的资源目录。"
   }
 }

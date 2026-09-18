@@ -110,6 +110,10 @@ if [ "$WHAT" = "check" ]; then
   echo "======================================================================"
   echo "  环境自检（不构建）"
   show_env
+  if [ -n "$PY" ] && [ -f "$T/sync_version.py" ]; then
+    echo "  版本号一致性（真源 = docs/index.html 里的游戏版本）:"
+    "$PY" "$T/sync_version.py" --check 2>&1 | sed 's/^/    /'
+  fi
   exit 0
 fi
 
@@ -128,6 +132,26 @@ echo "======================================================================"
 echo "  PvZ2 Gardendless 一键构建"
 echo "  范围: $WHAT"
 show_env
+
+# ---------- 版本号同步 ----------
+# 五个 exe 的版本来自 4 处彼此独立的配置（tauri.conf.json / Cargo.toml /
+# Cargo.lock / 两个 csproj）。这里在每次构建前按唯一真源统一刷一遍，
+# 所以上游把游戏升到 0.15 之后，下一次构建出来的 5 个 exe 就都是 0.15。
+SYNCVER="$T/sync_version.py"
+APPVER=""
+if [ -f "$SYNCVER" ]; then
+  echo "──── 版本号同步 ────"
+  APPVER="$("$PY" "$SYNCVER" --value 2>/dev/null || true)"
+  if [ -n "$APPVER" ]; then
+    "$PY" "$SYNCVER" 2>&1 | sed 's/^/   /'
+  else
+    echo "   [警告] 版本号探测失败，沿用配置里的现有值。"
+    echo "   [提示] 上游标题格式变了就手工指定："
+    echo "          python tools/sync_version.py --set X.Y.Z"
+  fi
+  echo "   >> 本次构建版本: ${APPVER:-（未知，沿用配置值）}"
+  echo "----------------------------------------------------------------------"
+fi
 
 # 编译/打包 + 校验
 pack_and_verify() {   # $1=基础exe  $2=输出exe
@@ -213,6 +237,14 @@ case "$WHAT" in
   all)      do_tauri; do_web; do_launcher ;;
   *) echo "未知范围: $WHAT（可选 tauri / web / launcher / all / check）"; exit 1 ;;
 esac
+
+echo
+echo "──── 成品校验（五个 exe 的版本号 / 图标是否一致）────"
+if [ -f "$T/verify_exe.py" ]; then
+  "$PY" "$T/verify_exe.py" --dist "$DIST" 2>&1 | tail -14 | sed 's/^/  /'
+else
+  echo "  [跳过] 找不到 tools/verify_exe.py"
+fi
 
 echo
 echo "======================================================================"

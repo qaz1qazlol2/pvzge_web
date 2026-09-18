@@ -9,9 +9,23 @@
 
     <AssemblyName>PvZGE-Launcher</AssemblyName>
     <RootNamespace>PvzgeLauncher</RootNamespace>
+    <!-- 产品信息：三处构建输入（这里 / webserver / tauri.conf.json）必须完全一致，
+         改完用 python tools/verify_exe.py 核对成品 -->
+    <Company>PvZ2 Gardendless</Company>
     <Product>PvZ2 Gardendless 本地启动器</Product>
     <AssemblyTitle>PvZ2 Gardendless 本地启动器</AssemblyTitle>
-    <Version>1.0.0</Version>
+    <Description>PvZ2 Gardendless 的 Windows 本地启动器（.NET + WebView2）。可读取 exe 尾部内嵌的游戏归档，也可以直接加载磁盘上的游戏目录。</Description>
+    <Copyright>Plants vs Zombies 2 Gardendless</Copyright>
+    <!-- 图标：多尺寸 PNG，从游戏上游发布的 exe 里提取，见 tools/extract_icon.py -->
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <!-- @version 由 tools/sync_version.py 自动写入，勿手改；真源见 tools/README.md -->
+    <Version>0.14.0</Version>
+    <FileVersion>0.14.0.0</FileVersion>
+    <AssemblyVersion>0.14.0.0</AssemblyVersion>
+    <InformationalVersion>0.14.0</InformationalVersion>
+    <!-- .NET 默认会把 git 提交哈希拼到 ProductVersion 后面（1.0.0+abc123）——关掉 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- /@version -->
 
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>

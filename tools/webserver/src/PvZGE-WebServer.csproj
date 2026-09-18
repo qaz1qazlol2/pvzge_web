@@ -8,8 +8,23 @@
 
     <AssemblyName>PvZGE-WebServer</AssemblyName>
     <RootNamespace>PvzgeWeb</RootNamespace>
+    <!-- 产品信息：三处构建输入（这里 / launcher / tauri.conf.json）必须完全一致，
+         改完用 python tools/verify_exe.py 核对成品 -->
+    <Company>PvZ2 Gardendless</Company>
     <Product>PvZ2 Gardendless 本地 Web 服务器</Product>
-    <Version>1.0.0</Version>
+    <AssemblyTitle>PvZ2 Gardendless 本地 Web 服务器</AssemblyTitle>
+    <Description>PvZ2 Gardendless 的独立 HTTP 服务器。可读取 exe 尾部内嵌的游戏归档，也可以用 --root 指向磁盘上的游戏目录。游戏必须走 HTTP 才能加载资源，file:// 不行。</Description>
+    <Copyright>Plants vs Zombies 2 Gardendless</Copyright>
+    <!-- 图标：多尺寸 PNG，从游戏上游发布的 exe 里提取，见 tools/extract_icon.py -->
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <!-- @version 由 tools/sync_version.py 自动写入，勿手改；真源见 tools/README.md -->
+    <Version>0.14.0</Version>
+    <FileVersion>0.14.0.0</FileVersion>
+    <AssemblyVersion>0.14.0.0</AssemblyVersion>
+    <InformationalVersion>0.14.0</InformationalVersion>
+    <!-- .NET 默认会把 git 提交哈希拼到 ProductVersion 后面（1.0.0+abc123）——关掉 -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- /@version -->
 
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
