@@ -1,1 +1,6 @@
 docs/assets/resources/native/8a/8a356ba7-b59f-463e-8083-c5b610ceab18.zip filter=lfs diff=lfs merge=lfs -text
+
+# 构建脚本固定 LF：本仓库 core.autocrlf=true，检出时会把它们换成 CRLF，
+# shell 脚本带 \r 可能直接跑挂。
+*.sh  text eol=lf
+*.py  text eol=lf
