@@ -5,6 +5,10 @@
 """
 import argparse, datetime, http.server, os, socketserver, sys, threading, webbrowser
 
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _console_utf8  # noqa: E402,F401
+
 EXTRA_MIME = {
     ".wasm": "application/wasm",
     ".js": "text/javascript", ".mjs": "text/javascript",

@@ -8,3 +8,7 @@
 /tools/**/obj/
 /tools/**/publish/
 /tools/**/build_incremental.log
+
+# Python 缓存（tools/ 下的脚本互相 import 时生成，比如 verify_exe -> extract_icon）
+__pycache__/
+*.pyc

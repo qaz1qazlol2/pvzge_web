@@ -7,6 +7,11 @@ import struct
 import sys
 import zlib
 
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _console_utf8  # noqa: E402,F401
+
+
 def main():
     # 默认值全部相对本脚本推导（tools/launcher/ 的上两级是仓库根），不写死机器路径
     here = os.path.dirname(os.path.abspath(__file__))

@@ -32,6 +32,9 @@ import os
 import struct
 import sys
 
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
+import _console_utf8  # noqa: E402,F401
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 三处构建输入（相对仓库根）

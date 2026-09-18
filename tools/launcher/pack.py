@@ -18,6 +18,10 @@ import struct
 import sys
 import zlib
 
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import _console_utf8  # noqa: E402,F401
+
 MAGIC = b"PVZGEARC"
 FOOTER = 16
 CHUNK = 4 * 1024 * 1024

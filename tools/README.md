@@ -47,6 +47,7 @@ HTTP 服务器，把 `http://pvzge.localhost/`（Tauri 自定义协议）或 `12
 ```
 build.sh                     ← 一键入口（仓库根）
 tools/
+  _console_utf8.py           ← 【全部 Python 脚本开头都 import 它】中文输出别乱码，见第八节
   extract_icon.py            ← 从上游发布的 exe 里提取图标 → 写入三处构建输入（可复现/可校验）
   sync_version.py            ← 版本号唯一真源（docs/index.html）→ 分发到 5 处配置
   verify_exe.py              ← 校验成品：五个 exe 的版本号 / 图标是否真的都一致
@@ -150,6 +151,8 @@ index: {"v":1,"e":[["相对路径", offset, storedLen, rawLen, method], ...]}
    表现为页面全白或音频 `204 (no response)`。让它排除本地地址。
 3. 换了音频后浏览器媒体缓存顽固，**Ctrl+Shift+R** 强刷。
 4. 单文件 exe 打完先跑一次 `verify_pack.py`，比启动起来看白屏快得多。
+5. **Python 打印的中文在 Git Bash 里变成 `□汾□□Դ`** —— 是 Windows 编码坑，不是文件坏了，
+   所有 `tools/*.py` 开头都 `import _console_utf8` 兜住了。细节见第八节。
 
 ---
 
@@ -247,3 +250,46 @@ python tools/sync_version.py --print              # 确认版本号已经跟着�
 python tools/extract_icon.py <新版exe> --write
 bash build.sh                                     # 版本号自动同步，5 个产物一次成型 + 自动校验
 ```
+
+---
+
+## 八、中文输出与 Windows 编码（`_console_utf8.py`）
+
+**症状**：在 Git Bash 里跑 `bash build.sh`，`build.sh` 自己 `echo` 的中文是好的，
+但 Python 脚本打印的中文全变成 `□汾□□Դ`、`Ŀ□□□汾` 这种。
+
+**为什么一半好一半坏**：`build.sh` 是 UTF-8 文件，`echo` 原样吐 UTF-8 字节，mintty 也按 UTF-8 解 → 正常。
+Python 则不然：Windows 上它只在 stdout 是**真控制台**时才走 `WriteConsoleW`（与编码无关）；
+一旦是管道 / 重定向就退回**系统 ANSI 代码页**（简体中文 = `cp936`/GBK）。
+而 Git Bash 的 pty **不是** Windows 控制台，`build.sh` 里还层层 `| sed` / `| tail` —— 所以必然是管道。
+
+于是 Python 吐 GBK、终端按 UTF-8 解：`版本真源` 的 GBK 是 `b0 e6 b1 be d5 e6 d4 b4`，
+`b0` 不是合法 UTF-8 起始字节 → 豆腐块；紧随的 `e6 b1 be` 又**恰好**拼成合法序列 U+6C7E → 「汾」。
+**乱码里夹着一两个"看着像中文但根本不是"的字，就是它**。
+
+**修法**：`tools/_console_utf8.py`，导入即生效，`tools/` 下所有 Python 脚本开头都 import 了它。
+行为：
+
+| 情况 | 动作 |
+|---|---|
+| 已设 `PYTHONUTF8` / `PYTHONIOENCODING` | 尊重用户设置，什么都不做 |
+| stdout/stderr 是 tty（cmd/PowerShell 里直接跑） | 不动 —— 那里本来就是对 |
+| 其余（管道 / 重定向） | 编码强制 UTF-8 + `errors="replace"`，并把 `\n`→`\r\n` 的翻译关掉 |
+
+`errors="replace"` 和「关掉换行翻译」都是刻意的：
+
+- 输出编码这种事**不该把整个构建打断**；
+- Windows 上管道 stdout 默认会把 `\n` 翻成 `\r\n`，而 `$( )` 只剥尾部 `\n`、**不剥 `\r`** ——
+  于是 `APPVER="$("$PY" tools/sync_version.py --value)"` 拿到的是 `"0.14.0\r"`。
+  肉眼看不出来（`\r` 会把光标送回行首），但 `\r` 会一路带进变量和后续参数里。统一成 LF 最省心。
+
+**不想改脚本时的手工等价办法**（临时排查可用）：
+
+```bash
+export PYTHONUTF8=1            # 最省事，一次管住所有 Python 进程
+export PYTHONIOENCODING=utf-8  # 只改 stdout/stderr
+python -X utf8 tools/xxx.py    # 单次
+```
+
+注意 `chcp 65001` **没用** —— 那只改 cmd.exe 的代码页，对 mintty 的 pty 管道毫无影响。
+

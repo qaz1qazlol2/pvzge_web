@@ -34,6 +34,10 @@ import struct
 import subprocess
 import sys
 
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
+# 这里【绝对不能】有任何输出 —— --value 的结果会被 build.sh 当版本号捕获。
+import _console_utf8  # noqa: E402,F401
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 TAURI_CONF = "tools/tauri-app/src-tauri/tauri.conf.json"

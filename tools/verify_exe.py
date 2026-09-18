@@ -23,8 +23,11 @@ import json
 import os
 import sys
 
-# 共享的 PE 资源读取器（图标 + 版本）都在 extract_icon.py 里，这里不再重复实现
+# 必须最早导入：Windows 下 stdout 走管道时会退回 cp936，中文全乱码。
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _console_utf8  # noqa: E402,F401
+
+# 共享的 PE 资源读取器（图标 + 版本）都在 extract_icon.py 里，这里不再重复实现
 from extract_icon import (  # noqa: E402
     PE, RT_GROUP_ICON, parse_group_icon, build_ico, sha,
     read_version as read_version_info,
