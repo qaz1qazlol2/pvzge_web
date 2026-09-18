@@ -3,6 +3,7 @@
 # 构建产物（build.sh 的默认输出目录）
 /dist/
 /tools/**/target/
+/tools/**/gen/
 /tools/**/bin/
 /tools/**/obj/
 /tools/**/publish/
