@@ -1,0 +1,24 @@
+[package]
+name = "pvzge"
+version = "0.14.0"
+description = "PvZ2 Gardendless 单文件启动器（Tauri + WebView2）"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
+
+# ---- 编译速度优先（exe 体积在这里无所谓：最终产物是 1.32 GB，壳大几 MB 完全不影响）----
+# lto = false          → 省掉最耗时的全程序优化链接（首次构建能省好几分钟，增量重建省得更多）
+# codegen-units = 16   → 并行代码生成（默认值，写出来是为了防止被上层的 lto 拖慢）
+[profile.release]
+opt-level = "s"
+lto = false
+codegen-units = 16
+panic = "abort"
+strip = true

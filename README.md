@@ -33,6 +33,21 @@ Try PvZ2 Gardendless online in [here](https://play.pvzge.com/) !
 
 Install Git LFS before cloning this repository. After pulling updates, run `git lfs pull` to download large game assets before serving `docs/` or building a Docker image.
 
+## Building desktop / offline packages
+
+`docs/` is the game itself. To package it into a self-contained Windows build
+(desktop shell with the game embedded, or a standalone local web server):
+
+```bash
+bash build.sh          # everything (tauri + web + launcher)
+bash build.sh check    # only print the detected toolchain and paths
+bash build.sh web      # web server only
+bash build.sh tauri    # Tauri desktop build only
+```
+
+Outputs land in `dist/` (gitignored). All sources and the full documentation are in
+[`tools/`](tools/README.md).
+
 ## Using Docker
 
 Deploy the game locally by using [Docker image](https://hub.docker.com/r/gaozih/pvzge)

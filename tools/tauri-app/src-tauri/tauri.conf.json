@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PvZ2 Gardendless",
+  "version": "0.14.0",
+  "identifier": "com.pvzge.launcher",
+  "build": {
+    "frontendDist": "../boot"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.ico"]
+  }
+}
