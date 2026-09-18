@@ -180,8 +180,25 @@ python tools/sync_version.py --dry-run   # 只显示会改什么，不落盘
 ```bash
 python tools/sync_version.py --set 0.15.0                     # 上游改了标题格式 → 手工指定
 python tools/sync_version.py --from-exe D:/pvzge-0.15.0.exe   # 直接读发布 exe 的版本资源
-python tools/sync_version.py --from-upstream                  # 读 upstream 远端最高 tag（需网络）
+python tools/sync_version.py --from-upstream                  # ⚠️ 别用，见下
 ```
+
+> ⚠️ **不要用 `--from-upstream`**。它取「upstream 远端最高的 `vX.Y.Z` tag」，
+> 但**上游并不是每个版本都打 tag** —— 实测（2026-09-18）上游最新 tag 只到 `v0.12.1`，
+> 而游戏本体已经是 `0.14.0`。照它写配置，5 处版本号会被**静默降级**成 `0.12.1`：
+>
+> ```
+> $ python tools/sync_version.py --from-upstream --dry-run
+>   将改 tools/tauri-app/src-tauri/tauri.conf.json            0.14.0 -> 0.12.1
+>   ...（5 处全是 0.14.0 -> 0.12.1）
+> ```
+>
+> 脚本已加保护：**结果低于 docs 真源就直接拒绝执行**（退出码 1），
+> `--print` / `--value` / `--check` / `--dry-run` 这些只读模式下只打印警告（方便排查）。
+> 确实要用旧版本覆盖，得显式加 `--force`。
+>
+> 想拿「当前版本」就**不加任何参数**；想拿「新版本」等上游发新版后更新 `docs/` 再跑默认，
+> 或用 `--set` / `--from-exe` 明确指定。**这条路径唯一可靠的用法是不用。**
 
 `--check` 校验的就是这 5 处：
 

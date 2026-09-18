@@ -23,9 +23,20 @@
     python tools/sync_version.py --set 0.15.0    # 手工指定
     python tools/sync_version.py --from-exe D:/pvzge-0.15.0.exe
     python tools/sync_version.py --from-upstream # 网络：读 upstream 远端最高版本 tag
+    python tools/sync_version.py --force         # 配合 --from-upstream：明知版本更旧也要写
 
 唯一真源的优先级：
     --set  >  --from-exe  >  --from-upstream  >  docs/index.html 标题（默认，离线）
+
+⚠️ 关于 --from-upstream：**这条路径不可靠，通常不要用**。
+   上游并不是每个版本都打 tag —— 实测上游最新 tag 只到 v0.12.1，而游戏本体已经是 0.14.0。
+   于是它会算出比实际游戏更旧的版本，照它写配置就把 5 处版本号静默降级了。
+   为此本脚本加了保护：**只要 --from-upstream 的结果低于 docs 真源，就直接拒绝执行**
+   （只读模式 --print/--value/--check/--dry-run 下改为打印警告，方便排查）。
+   确实要用这个旧版本覆盖，请显式加 --force。
+
+   要拿"当前版本"，正确做法就是**不加任何参数**（默认真源 = docs/index.html）。
+   要拿"新版本"，等上游发新版后更新 docs/ 再跑默认，或用 --set / --from-exe 明确指定。
 """
 import json
 import os
@@ -86,6 +97,23 @@ def from_docs():
         raise SystemExit("docs/index.html 标题里没有版本号: %r\n"
                          "（上游改了标题格式？用 --set X.Y.Z 手工指定）" % title)
     return hits[-1], "docs/index.html 标题: %s" % title
+
+
+def vt(sem):
+    """把版本号拍成可比较的元组：0.14.0 -> (0, 14, 0)。用于判断「谁更旧」。"""
+    m = re.match(r"^(\d+(?:\.\d+)*)", str(sem).strip().lstrip("vV"))
+    return tuple(int(x) for x in m.group(1).split(".")) if m else (0,)
+
+
+def docs_or_none():
+    """取 docs 真源；取不到就返回 (None, None)。
+
+    保护逻辑拿它当对照基准，不该因为读不到 docs/index.html 就把整条命令弄失败。
+    """
+    try:
+        return from_docs()
+    except SystemExit:
+        return None, None
 
 
 def from_exe(path):
@@ -298,6 +326,27 @@ def main():
         raw, why = from_exe(opt("--from-exe"))
     elif "--from-upstream" in argv:
         raw, why = from_upstream()
+        # 上游**并不是每个版本都打 tag** —— 实测上游最新 tag 只到 v0.12.1，
+        # 而游戏本体（docs/index.html 标题）已经是 0.14.0。
+        # 所以这条路径算出来的版本可能比我们实际打包的游戏还旧；一旦照它写配置，
+        # 5 处版本号会被**静默降级**。低于 docs 真源就拒绝执行。
+        raw_docs, why_docs = docs_or_none()
+        if raw_docs and vt(raw) < vt(raw_docs):
+            detail = ("--from-upstream 算出 %s，比 docs 真源还旧：\n"
+                      "    上游 tag : %s\n"
+                      "    文档真源 : %s\n"
+                      "  原因：上游不是每个版本都打 tag，这条路径不可靠。"
+                      % (raw, why, why_docs))
+            readonly = do_print or do_value or do_check or dry
+            if readonly:
+                # 只读模式（--print/--value/--check/--dry-run）不改文件，给警告就好，方便排查
+                sys.stderr.write("[警告] %s\n" % detail)
+            elif "--force" not in argv:
+                raise SystemExit(
+                    "[拒绝] %s\n"
+                    "  想用这个旧版本覆盖 5 处配置，请显式加 --force；\n"
+                    "  想拿当前版本，直接跑默认（不加任何参数，真源走 docs/index.html）。"
+                    % detail)
     else:
         raw, why = from_docs()
     sem, quad = norm(raw)
