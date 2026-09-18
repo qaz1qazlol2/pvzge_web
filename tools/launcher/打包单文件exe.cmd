@@ -4,8 +4,9 @@ setlocal EnableDelayedExpansion
 title PvZGE 单文件打包工具
 
 rem ========================= 配置（按需改这里） =========================
-rem 游戏目录（必须含 index.html）
-set "GAMEDIR=D:\git\pvzge_web\docs"
+rem 游戏目录（必须含 index.html）—— 相对本脚本推导：tools\launcher\ 的上两级是仓库根
+set "HERE=%~dp0"
+set "GAMEDIR=%HERE%..\..\docs"
 
 rem 输出 exe 的完整路径
 set "OUTEXE=%~dp0PvZGE-Gardendless-单文件.exe"
@@ -17,10 +18,11 @@ rem =====================================================================
 set "HERE=%~dp0"
 
 rem ---------- 找 Python ----------
-set "PY="
-if exist "C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe" set "PY=C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+rem 不写死解释器路径（可用环境变量 PYTHON 覆盖）
+set "PY=%PYTHON%"
 if not defined PY for %%I in (python.exe) do if not defined PY set "PY=%%~$PATH:I"
 if not defined PY for %%I in (python3.exe) do if not defined PY set "PY=%%~$PATH:I"
+if not defined PY for %%I in (py.exe) do if not defined PY set "PY=%%~$PATH:I"
 if not defined PY (
   echo [错误] 找不到 Python，打包需要它。
   echo        装一个 Python 3 并加入 PATH 即可。

@@ -8,8 +8,11 @@ import sys
 import zlib
 
 def main():
-    exe = sys.argv[1] if len(sys.argv) > 1 else r"D:\pvzge-launcher-single.exe"
-    game = sys.argv[2] if len(sys.argv) > 2 else r"D:\git\pvzge_web\docs"
+    # 默认值全部相对本脚本推导（tools/launcher/ 的上两级是仓库根），不写死机器路径
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo = os.path.dirname(os.path.dirname(here))
+    exe = sys.argv[1] if len(sys.argv) > 1 else os.path.join(repo, "dist", "PvZGE-Gardendless.exe")
+    game = sys.argv[2] if len(sys.argv) > 2 else os.path.join(repo, "docs")
     exe = os.path.abspath(exe)
     game = os.path.abspath(game)
 

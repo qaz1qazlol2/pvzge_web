@@ -20,10 +20,14 @@ bash build.sh            # 全做
 | 产物 | 是什么 | 体积 |
 |---|---|---|
 | `PvZGE-Gardendless.exe` | Tauri 桌面壳（Rust + WebView2），内嵌游戏，**双击即玩** | ~1.32 GB |
-| `PvZGE-WebServer.exe` | 独立 Web 服务器，`--root <游戏目录>` 起 HTTP 服务 | ~37 MB |
+| `PvZGE-WebServer.exe` | 独立 Web 服务器，`--root <游戏目录>` 起 HTTP 服务 | ~36 MB |
 | `PvZGE-WebServer-单文件.exe` | 上面那个 + 内嵌游戏 | ~1.35 GB |
-| `PvZGE-Launcher.exe` | .NET/WinForms + WebView2 启动器（早于 Tauri 的实现） | ~37 MB |
+| `PvZGE-Launcher.exe` | .NET/WinForms + WebView2 启动器（早于 Tauri 的实现） | ~47 MB |
 | `PvZGE-Launcher-单文件.exe` | 上面那个 + 内嵌游戏 | ~1.36 GB |
+
+> 前两个是「**本体**」：只有程序，运行时从磁盘上的游戏目录读资源，
+> 所以必须把 `dist\` 里的 exe 和 `docs\` 放一起（或用 `--root` 指过去）。
+> 带「**-单文件**」后缀的三个把资源内嵌进 exe，**单个文件即可分发**。
 
 > 体积大是因为游戏资源本身 1.39 GB / 8418 个文件。
 > 文本类（`.js/.json/.html/.wasm`…）走 deflate 压缩，mp3/png 原样存储。
@@ -113,14 +117,19 @@ index: {"v":1,"e":[["相对路径", offset, storedLen, rawLen, method], ...]}
 ## 五、运行时行为（各壳一致）
 
 - 启动时先看 exe 尾部有没有 `PVZGEARC` 归档：**有就用内嵌的**，没有才回落到磁盘目录
-- 找游戏目录的顺序：`--root <目录>` / `PVZGE_WEB` 环境变量 → exe 同级 `web\` → exe 同级 `launcher.config`（`root=...`）→ 源码里的默认路径
+- 找游戏目录的顺序（**全部相对 exe 推导，源码里没有任何机器路径**）：
+  `--root <目录>` → `PVZGE_WEB` 环境变量 → **exe 所在目录本身** → exe 同级 `web\` →
+  exe 同级 `launcher.config`（`root=...`）→ exe 同级 `docs\` → exe 上级 `docs\`。
+  目标是「目录里有 `index.html`」即命中
 - **禁缓存**（`Cache-Control: no-store`）：改了 `docs/` 里的文件，刷新页面就生效
 - **正确 MIME**：`.wasm` → `application/wasm`、`.mp3` → `audio/mpeg` 等（缺了会导致 wasm 编译失败或音频不播）
 - **支持 Range**：音频/大文件分段加载更稳
 - `--info` 打印资源来源与条目数；`--disk` 强制忽略内嵌资源（调试用）
 
-> 源码里 `DefaultRoot` 还是 `D:\git\pvzge_web\docs` —— 它只是**最后**一道兜底，
-> 正常走 `--root` 或 exe 同级 `web\`。换机器跑不用改代码，把游戏目录放对位置即可。
+> 三种放置方式任选一种即可跑起来：
+> ① exe 与游戏目录同级（叫 `docs\` 或 `web\`）；
+> ② 把 exe 直接丢进游戏目录里（命中「exe 所在目录」）；
+> ③ 仓库开发态：exe 留在 `dist\`，自动取上级的 `docs\`。
 
 ---
 

@@ -721,8 +721,7 @@ namespace PvzgeLauncher
     // ============================================================ 入口
     internal static class Program
     {
-        private const string DefaultRoot = @"D:\git\pvzge_web\docs";
-
+        // 游戏目录一律**相对 exe 所在位置**解析，不写死任何机器路径（见 ResolveRoot）。
         [STAThread]
         private static int Main(string[] args)
         {
@@ -783,11 +782,15 @@ namespace PvzgeLauncher
                 if (root == null)
                 {
                     string msg =
-                        "既没有内嵌资源，也找不到磁盘上的游戏目录（需含 index.html）。\n\n已尝试：\n" +
+                        "既没有内嵌资源，也找不到磁盘上的游戏目录（需含 index.html）。\n\n" +
+                        "按 exe 的相对位置依次尝试过：\n" +
                         "  1) 命令行 --root\n" +
-                        "  2) exe 同级的 web\\ 目录\n" +
-                        "  3) exe 同级的 launcher.config（写 root=<目录>）\n" +
-                        "  4) 默认路径 " + DefaultRoot;
+                        "  2) 环境变量 PVZGE_WEB\n" +
+                        "  3) exe 所在目录本身\n" +
+                        "  4) exe 同级的 web\\ 目录\n" +
+                        "  5) exe 同级的 launcher.config（写 root=<目录>）\n" +
+                        "  6) exe 同级的 docs\\ 目录\n" +
+                        "  7) exe 上级的 docs\\ 目录";
                     if (serveOnly) { Console.Error.WriteLine(msg); return 1; }
                     MessageBox.Show(msg, "PvZ2 Gardendless 启动器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return 1;
@@ -849,15 +852,25 @@ namespace PvzgeLauncher
             try { AttachConsole(-1); } catch { }
         }
 
+        // 游戏目录一律**相对 exe 所在位置**解析，不写死任何机器路径。
+        // 顺序：--root → PVZGE_WEB → exe 所在目录 → exe 同级 web\ → exe 同级 launcher.config
+        //       → exe 同级 docs\ → exe 上级 docs\
         private static string ResolveRoot(string cliRoot, out string source)
         {
+            string exeDir = AppContext.BaseDirectory;
             var cands = new List<KeyValuePair<string, string>>();
             if (!string.IsNullOrWhiteSpace(cliRoot))
                 cands.Add(new KeyValuePair<string, string>(cliRoot, "命令行参数"));
-            cands.Add(new KeyValuePair<string, string>(Path.Combine(AppContext.BaseDirectory, "web"), "exe 同级 web\\"));
+
+            string env = Environment.GetEnvironmentVariable("PVZGE_WEB");
+            if (!string.IsNullOrWhiteSpace(env))
+                cands.Add(new KeyValuePair<string, string>(env, "环境变量 PVZGE_WEB"));
+
+            cands.Add(new KeyValuePair<string, string>(exeDir, "exe 所在目录"));
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "web"), "exe 同级 web\\"));
             try
             {
-                string cfg = Path.Combine(AppContext.BaseDirectory, "launcher.config");
+                string cfg = Path.Combine(exeDir, "launcher.config");
                 if (File.Exists(cfg))
                     foreach (string raw in File.ReadAllLines(cfg))
                     {
@@ -871,7 +884,9 @@ namespace PvzgeLauncher
                     }
             }
             catch { }
-            cands.Add(new KeyValuePair<string, string>(DefaultRoot, "默认路径"));
+
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "docs"), "exe 同级 docs\\"));
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "..", "docs"), "exe 上级 docs\\"));
 
             foreach (var kv in cands)
             {

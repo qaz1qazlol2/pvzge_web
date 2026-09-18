@@ -10,6 +10,7 @@
 //   PvZGE-WebServer.exe --open                   启动后自动打开浏览器
 //   PvZGE-WebServer.exe --info                   只看资源来源，不起服务
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -19,8 +20,7 @@ namespace PvzgeWeb
 {
     internal static class Program
     {
-        private const string DefaultRoot = @"D:\git\pvzge_web\docs";
-
+        // 游戏目录一律**相对 exe 所在位置**解析，不写死任何机器路径（见 ResolveRoot）。
         private static int Main(string[] args)
         {
             string cliRoot = null;
@@ -59,7 +59,8 @@ namespace PvzgeWeb
                 if (root == null)
                 {
                     Console.Error.WriteLine("找不到游戏目录（需要目录里有 index.html）。");
-                    Console.Error.WriteLine("已尝试：--root / exe 同级 web\\ / exe 同级 launcher.config / 默认 " + DefaultRoot);
+                    Console.Error.WriteLine("按 exe 的相对位置依次尝试过：--root / PVZGE_WEB / exe 所在目录 / "
+                        + "exe 同级 web\\ / launcher.config / exe 同级 docs\\ / exe 上级 docs\\");
                     return 1;
                 }
             }
@@ -117,18 +118,25 @@ namespace PvzgeWeb
             Console.WriteLine("  --host 0.0.0.0    允许局域网访问（默认仅本机 127.0.0.1）");
             Console.WriteLine("  --open            启动后自动打开默认浏览器");
             Console.WriteLine("  --info            只打印资源来源后退出");
-            Console.WriteLine("不指定 --root 时：优先用 exe 尾部内嵌归档，其次 exe 同级 web\\，最后默认路径。");
+            Console.WriteLine("不指定 --root 时：优先用 exe 尾部内嵌归档，其次按 exe 的相对位置找 web\\ / docs\\。");
         }
 
+        // 游戏目录一律**相对 exe 所在位置**解析，不写死任何机器路径。
+        // 顺序：--root → PVZGE_WEB → exe 所在目录 → exe 同级 web\ → exe 同级 launcher.config
+        //       → exe 同级 docs\ → exe 上级 docs\
         private static string ResolveRoot(string cliRoot, out string source)
         {
-            if (!string.IsNullOrWhiteSpace(cliRoot))
-            {
-                if (File.Exists(Path.Combine(cliRoot, "index.html"))) { source = "命令行参数"; return Path.GetFullPath(cliRoot); }
-            }
             string exeDir = AppContext.BaseDirectory;
-            string web = Path.Combine(exeDir, "web");
-            if (File.Exists(Path.Combine(web, "index.html"))) { source = "exe 同级 web\\"; return Path.GetFullPath(web); }
+            var cands = new List<KeyValuePair<string, string>>();
+            if (!string.IsNullOrWhiteSpace(cliRoot))
+                cands.Add(new KeyValuePair<string, string>(cliRoot, "命令行参数"));
+
+            string env = Environment.GetEnvironmentVariable("PVZGE_WEB");
+            if (!string.IsNullOrWhiteSpace(env))
+                cands.Add(new KeyValuePair<string, string>(env, "环境变量 PVZGE_WEB"));
+
+            cands.Add(new KeyValuePair<string, string>(exeDir, "exe 所在目录"));
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "web"), "exe 同级 web\\"));
 
             try
             {
@@ -143,17 +151,26 @@ namespace PvzgeWeb
                         {
                             int eq = line.IndexOf('=');
                             if (eq > 0)
-                            {
-                                string p = line.Substring(eq + 1).Trim().Trim('"');
-                                if (File.Exists(Path.Combine(p, "index.html"))) { source = "launcher.config"; return Path.GetFullPath(p); }
-                            }
+                                cands.Add(new KeyValuePair<string, string>(
+                                    line.Substring(eq + 1).Trim().Trim('"'), "launcher.config"));
                         }
                     }
                 }
             }
             catch { }
 
-            if (File.Exists(Path.Combine(DefaultRoot, "index.html"))) { source = "默认路径"; return Path.GetFullPath(DefaultRoot); }
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "docs"), "exe 同级 docs\\"));
+            cands.Add(new KeyValuePair<string, string>(Path.Combine(exeDir, "..", "docs"), "exe 上级 docs\\"));
+
+            foreach (var kv in cands)
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(kv.Key) && File.Exists(Path.Combine(kv.Key, "index.html")))
+                    { source = kv.Value; return Path.GetFullPath(kv.Key); }
+                }
+                catch { }
+            }
             source = null;
             return null;
         }

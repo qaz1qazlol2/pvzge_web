@@ -5,18 +5,20 @@ title PvZ2 Gardendless 本地启动器
 
 rem ==================== 可改配置 ====================
 set "PORT=8123"
-rem 游戏目录：优先用脚本同级的 web\，没有再回落到下面的绝对路径
-set "DEFAULT_ROOT=D:\git\pvzge_web\docs"
+rem 游戏目录：全部相对本脚本推导，不写死任何机器路径
+set "HERE=%~dp0"
+set "DEFAULT_ROOT=%HERE%..\..\docs"
 rem ==================================================
 
-set "HERE=%~dp0"
 set "ROOT="
-if exist "%HERE%web\index.html" set "ROOT=%HERE%web"
+if exist "%HERE%index.html" set "ROOT=%HERE%"
+if not defined ROOT if exist "%HERE%web\index.html" set "ROOT=%HERE%web"
+if not defined ROOT if exist "%HERE%docs\index.html" set "ROOT=%HERE%docs"
 if not defined ROOT if exist "%DEFAULT_ROOT%\index.html" set "ROOT=%DEFAULT_ROOT%"
 if not defined ROOT (
-  echo [错误] 找不到游戏目录。请二选一：
-  echo        1^) 把游戏文件放到本脚本同级的 web\ 目录下
-  echo        2^) 修改本脚本里的 DEFAULT_ROOT
+  echo [错误] 找不到游戏目录。任选其一：
+  echo        1^) 把游戏文件放到本脚本同级的 web\ 或 docs\ 目录下
+  echo        2^) 按仓库布局放好（tools\launcher\ 的上两级就是 docs\）
   echo.
   pause
   exit /b 1
@@ -29,10 +31,11 @@ if not exist "%HERE%server.py" (
 )
 
 rem ---------- 找 Python ----------
-set "PY="
-if exist "C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe" set "PY=C:\Users\Administrator\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+rem 不写死解释器路径（可用环境变量 PYTHON 覆盖）
+set "PY=%PYTHON%"
 if not defined PY for %%I in (python.exe) do if not defined PY set "PY=%%~$PATH:I"
 if not defined PY for %%I in (python3.exe) do if not defined PY set "PY=%%~$PATH:I"
+if not defined PY for %%I in (py.exe) do if not defined PY set "PY=%%~$PATH:I"
 if not defined PY (
   echo [错误] 找不到 Python。
   echo        请改用 PvZGE-Launcher.exe（WebView2 版，不依赖 Python）。

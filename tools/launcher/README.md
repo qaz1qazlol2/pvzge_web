@@ -21,15 +21,16 @@
 
 ```bat
 set "PORT=8123"
-set "DEFAULT_ROOT=D:\git\pvzge_web\docs"
+set "DEFAULT_ROOT=%HERE%..\..\docs"
 ```
 
-或者把游戏文件放到脚本同级的 `web\` 文件夹里（这样最省事、可整体拷走）。
+`DEFAULT_ROOT` 默认就指向仓库的 `docs\`（相对脚本推导，不写死盘符）。
+或者把游戏文件放到脚本同级的 `web\` / `docs\` 文件夹里（这样最省事、可整体拷走）。
 
 ### 手动跑（等价）
 
 ```bat
-python server.py --root "D:\git\pvzge_web\docs" --port 8123 --open
+python server.py --root "..\..\docs" --port 8123 --open
 ```
 
 `server.py` 支持 `--root` / `--port` / `--open` / `--quiet` / `--logfile`。
@@ -47,12 +48,17 @@ python server.py --root "D:\git\pvzge_web\docs" --port 8123 --open
 本机已装 153.0.4234.32）。没装的话从
 <https://developer.microsoft.com/microsoft-edge/webview2/> 下载安装即可。
 
-### 指定游戏目录（按优先级）
+### 指定游戏目录（按优先级，全部相对 exe 推导）
 
 1. 命令行：`PvZGE-Launcher.exe --root "D:\其他\路径"`
-2. exe 同级的 **`web\`** 文件夹（放 `index.html` 那一层）
-3. exe 同级的 **`launcher.config`**，写一行 `root=D:\git\pvzge_web\docs`
-4. 默认路径 `D:\git\pvzge_web\docs`
+2. 环境变量 `PVZGE_WEB`
+3. **exe 所在目录本身**（把 exe 丢进游戏目录）
+4. exe 同级的 **`web\`** 文件夹（放 `index.html` 那一层）
+5. exe 同级的 **`launcher.config`**，写一行 `root=<游戏目录>`
+6. exe 同级的 **`docs\`**
+7. exe 上级的 **`docs\`**（仓库开发态：`dist\` 里的 exe → 仓库 `docs\`）
+
+> 源码里不写死任何机器路径，换机器把 exe 和游戏目录放对位置即可。
 
 ### 命令行参数
 
@@ -108,7 +114,7 @@ dotnet publish PvZGE-Launcher.csproj -c Release -o ..\publish
 编辑 `打包单文件exe.cmd` 顶部：
 
 ```bat
-set "GAMEDIR=D:\git\pvzge_web\docs"                  rem 游戏目录
+set "GAMEDIR=%HERE%..\..\docs"                       rem 游戏目录（相对脚本推导）
 set "OUTEXE=%~dp0PvZGE-Gardendless-单文件.exe"        rem 输出路径
 set "REBUILD=1"                                       rem 1=重新编译(需 .NET SDK) 0=用现成的
 ```
@@ -118,8 +124,8 @@ set "REBUILD=1"                                       rem 1=重新编译(需 .NE
 ### 也可以直接命令行打包
 
 ```bat
-python pack.py publish\PvZGE-Launcher.exe "D:\git\pvzge_web\docs" "D:\输出.exe"
-python verify_pack.py "D:\输出.exe" "D:\git\pvzge_web\docs"    rem 校验归档与磁盘一致
+python pack.py publish\PvZGE-Launcher.exe "..\..\docs" "D:\输出.exe"
+python verify_pack.py "D:\输出.exe" "..\..\docs"    rem 校验归档与磁盘一致
 ```
 
 ### 单文件版的运行时行为

@@ -20,7 +20,6 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 const MAGIC: &[u8; 8] = b"PVZGEARC";
 const SCHEME: &str = "pvzge"; // Windows 上映射为 http://pvzge.localhost
-const DEFAULT_ROOT: &str = r"D:\git\pvzge_web\docs";
 
 #[derive(Clone, Copy)]
 struct Entry {
@@ -44,13 +43,21 @@ fn open_source() -> Source {
     if let Some(s) = try_open_archive() {
         return s;
     }
-    // 2) 环境变量 / 命令行 / exe 同级 web\ / 默认路径
+    // 2) 环境变量 / 命令行 / exe 相对位置（全部相对 exe，不写死机器路径）
     for cand in candidate_roots() {
         if cand.join("index.html").is_file() {
             return Source::Dir(cand);
         }
     }
-    Source::Dir(PathBuf::from(DEFAULT_ROOT))
+    Source::Dir(default_fallback())
+}
+
+/// 找不到任何游戏目录时的兜底：exe 同级的 docs\（不写死盘符）
+fn default_fallback() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("docs")))
+        .unwrap_or_else(|| PathBuf::from("docs"))
 }
 
 fn candidate_roots() -> Vec<PathBuf> {
@@ -68,10 +75,12 @@ fn candidate_roots() -> Vec<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            v.push(dir.join("web"));
+            v.push(dir.to_path_buf()); // exe 所在目录本身
+            v.push(dir.join("web")); // exe 同级 web\
+            v.push(dir.join("docs")); // exe 同级 docs\
+            v.push(dir.join("..").join("docs")); // exe 上级 docs\（开发态 dist\ → 仓库\docs）
         }
     }
-    v.push(PathBuf::from(DEFAULT_ROOT));
     v
 }
 
