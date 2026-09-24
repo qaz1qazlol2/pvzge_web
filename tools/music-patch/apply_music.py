@@ -60,7 +60,7 @@ TRACKS = [
     dict(name="RZ_Future",   world="Future",   world_enum="Future",   uuid="b7000004", music_len=181,   duration=184.152),
     dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     uuid="b7000005", music_len=181,   duration=185.496),
     dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    uuid="b7000006", music_len=182.5, duration=186.24),
-    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      uuid="b7000007", music_len=181,   duration=184.968),
+    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      uuid="b7000007", music_len=182.5,   duration=186.24),
     dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", uuid="b7000008", music_len=181,   duration=184.872),
     dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      uuid="b7000009", music_len=181,   duration=181.577143),
     dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     uuid="b700000a", music_len=181,   duration=184.416),
@@ -373,7 +373,27 @@ MUSICS_ANCHOR_SUFFIX = '"musicLength":28,"world":"All","type":["Always"]}'
 
 def patch_music_json(text, dry=False):
     if '"RZ_Egypt"' in text:
-        return text, [("M1 Musics 条目", "已存在，跳过")], []
+        # 已存在 → **不能只跳过**。换音频后循环点会变，而 musicLength 是 index.js
+        # 里真正的切歌点（`currentTime >= musicLength && changeLoopPlayer()`），
+        # 不跟着改，游戏就会在旧的点切歌。所以这里要按 TRACKS 逐条同步。
+        changes = [("M1 Musics 条目", "已存在，只同步 musicLength")]
+        touched = []
+        for t in TRACKS:
+            pat = re.compile(r'("name":"' + re.escape(t["name"]) +
+                             r'","path":"[^"]*","musicLength":)([0-9.]+)')
+            m = pat.search(text)
+            if not m:
+                raise Fail(f"Musics 里找不到 {t['name']} 的条目")
+            new = _num(t["music_len"])
+            if m.group(2) == new:
+                continue
+            text = text[:m.start(2)] + new + text[m.end(2):]
+            changes.append((f"  {t['name']}",
+                            f"musicLength {m.group(2)} → {new}"))
+            touched.append("0a278bb49.json")
+        if not touched:
+            return text, [("M1 Musics 条目", "已存在且 musicLength 全部一致")], []
+        return text, changes, ["0a278bb49.json"]
 
     pat = re.compile(r'("path":"dialogue/Dialogue_Dave_LP",' + re.escape(MUSICS_ANCHOR_SUFFIX) + r')')
     m = pat.search(text)

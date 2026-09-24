@@ -49,7 +49,7 @@ import tempfile
 import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_HERE)
+_ROOT = os.path.dirname(os.path.dirname(_HERE))   # 仓库根（tools/ 的上一层）
 sys.path.insert(0, os.path.dirname(_HERE))
 import _console_utf8  # noqa: E402,F401
 
@@ -355,7 +355,12 @@ def main():
         print("  python tools/music-patch/audio_report.py --repo D:/git/pvzge_web")
         return 0
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+        # ⚠️ 别用 shutil.rmtree：本沙箱有 safe-delete 包装器会拦截它并改走回收站，
+        #    而回收站那条路恒返回 0x2（假失败），包装器 fail-closed 会**直接 SIGTERM
+        #    杀掉整个进程** —— 收尾 summary 就打不出来了。临时目录在 %TEMP% 里，
+        #    留给 Windows 自己清，比冒险删它划算。
+        if os.path.isdir(tmpdir):
+            print(f"（中间产物留在 {tmpdir}，可自行删除）")
 
 
 if __name__ == "__main__":
