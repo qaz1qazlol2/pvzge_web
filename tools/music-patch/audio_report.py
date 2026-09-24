@@ -55,7 +55,9 @@ DUR_TOLERANCE = 0.15     # 声明的 duration 和实测差超过这么多秒就�
 
 # 官方初始 musicLength —— 与 rz_map_check.py 保持一致。
 # 被替换过会被改成实际循环点（如 182.5），据此判定"自制 / 官方原声"。
+# 12 条每个世界的 Victory 初始都是 RZ_Victory 的拷贝，原生值同样是 3。
 ORIGINAL_LEN = {"RZ_Victory": 3}
+ORIGINAL_LEN.update({t["name"]: 3 for t in apply_music.VICTORY_TRACKS})
 DEFAULT_LEN = 181
 
 HOME_SPEC = {"br": 160000, "sr": 48000, "ch": 2}   # 房子标准（自制轨应对齐的规格）
@@ -75,7 +77,7 @@ def provenance(t):
 
 def collect(repo, only=None, loudness_only=False):
     rows = []
-    for t in apply_music.TRACKS:
+    for t in apply_music.ALL_TRACKS:
         if only and t["name"] != only:
             continue
         p = track_path(repo, t)

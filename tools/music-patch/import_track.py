@@ -73,10 +73,10 @@ def track_path(repo, t):
 
 
 def pick_track(name):
-    for t in apply_music.TRACKS:
+    for t in apply_music.ALL_TRACKS:
         if t["name"] == name:
             return t
-    near = [t["name"] for t in apply_music.TRACKS
+    near = [t["name"] for t in apply_music.ALL_TRACKS
             if name.lower() in t["name"].lower()]
     raise SystemExit(f"[错] 没有音轨叫 {name!r}。"
                      + (f"你是不是想输：{', '.join(near)}？" if near
@@ -153,9 +153,9 @@ def main():
     repo = os.path.abspath(args.repo)
 
     if args.list or not args.track:
-        print(f"{'音轨':<13}{'world':<10}{'uuid':<10}{'时长':>9}{'循环点':>9}{'尾长':>8}")
-        for t in apply_music.TRACKS:
-            print(f"{t['name']:<13}{t['world']:<10}{t['uuid']:<10}"
+        print(f"{'音轨':<16}{'world':<10}{'uuid':<10}{'时长':>9}{'循环点':>9}{'尾长':>8}")
+        for t in apply_music.ALL_TRACKS:
+            print(f"{t['name']:<16}{t['world']:<10}{t['uuid']:<10}"
                   f"{t['duration']:>9.3f}{t['music_len']:>9.3f}"
                   f"{t['duration'] - t['music_len']:>8.3f}")
         print()

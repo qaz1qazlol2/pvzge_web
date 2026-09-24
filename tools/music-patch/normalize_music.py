@@ -84,6 +84,7 @@ def track_path(repo, t):
 # 官方初始 musicLength —— 与 rz_map_check.py / audio_report.py 同一套口径。
 # 被替换过会被改成实际循环点（如 182.5），据此判定"自制 / 官方原声"。
 ORIGINAL_LEN = {"RZ_Victory": 3}
+ORIGINAL_LEN.update({t["name"]: 3 for t in apply_music.VICTORY_TRACKS})
 DEFAULT_LEN = 181
 
 
@@ -191,9 +192,9 @@ def main():
     want = None
     if args.tracks:
         want = {s.strip() for s in args.tracks.split(",") if s.strip()}
-    tracks = [t for t in apply_music.TRACKS if not want or t["name"] in want]
+    tracks = [t for t in apply_music.ALL_TRACKS if not want or t["name"] in want]
     if want:
-        unknown = want - {t["name"] for t in apply_music.TRACKS}
+        unknown = want - {t["name"] for t in apply_music.ALL_TRACKS}
         for u in sorted(unknown):
             print(f"⚠️  未知音轨名：{u}")
 
