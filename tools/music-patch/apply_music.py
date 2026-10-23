@@ -129,7 +129,81 @@ JAM_TRACKS = [
 # 世界枚举值 → 实际使用的音轨。Eighties 复用 Ballad 的曲子。
 WORLD_ALIASES = {"Eighties": "RZ_Ballad"}
 
-ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS
+
+# --------------------------------------------------------------------------
+# Jam 世界的 UB / MG 曲目（劫持引擎已有条目）
+# --------------------------------------------------------------------------
+# 和 RZ_* 完全不同的一套做法 —— 这里**不新增条目**，而是直接改引擎里
+# 已经存在的 UB_Punk / MG_Punk 等 12 条的 tauri 指向我们的音频。
+#
+# 为什么这么做（外部补丁的经验）：
+#   引擎的 switchMusic 里，Jam 世界的分支本来就写死了
+#       case 122: a==v.UltimateBattle ? (u=A.UB_Ballad, ...)
+#                 a==v.DemonstrateMinigame ? (u=A.MG_Ballad, ...)
+#   这些 A.UB_Ballad / A.MG_Ballad 是**枚举下标**，而 Musics 里对应的条目
+#   原本指向 Music_Future_UB / Music_Future_MG（官方偷懒复用了 Future 的曲子）。
+#   所以只要把那条目的 tauri 换掉，整条链路一行代码都不用改。
+#
+# ⚠️ 名字大小写必须跟引擎一致：引擎用 `UB_EightBit`（大写 B），
+#    而补丁文件名是 `UB_Eightbit.mp3`，转换时要注意。
+#
+# musicLength 也按补丁的规则走「实际时长 - 0.05」，强制由 update 跳轨
+# （Cocos 的 AudioClip 自然播完会把 currentTime 清零，导致循环接轨失效）。
+JAM_UBMG_TRACKS = [
+    dict(name="UB_Ballad",   jam="Ballad",   fam="UB", music_len=185.547, duration=185.597),
+    dict(name="UB_Punk",     jam="Punk",     fam="UB", music_len=185.547, duration=185.597),
+    dict(name="UB_Pop",      jam="Pop",      fam="UB", music_len=185.547, duration=185.597),
+    dict(name="UB_Rap",      jam="Rap",      fam="UB", music_len=185.547, duration=185.597),
+    dict(name="UB_EightBit", jam="Eightbit", fam="UB", music_len=185.547, duration=185.597),
+    dict(name="UB_Metal",    jam="Metal",    fam="UB", music_len=185.547, duration=185.597),
+    dict(name="MG_Ballad",   jam="Ballad",   fam="MG", music_len=184.805, duration=184.855),
+    dict(name="MG_Punk",     jam="Punk",     fam="MG", music_len=184.805, duration=184.855),
+    dict(name="MG_Pop",      jam="Pop",      fam="MG", music_len=184.805, duration=184.855),
+    dict(name="MG_Rap",      jam="Rap",      fam="MG", music_len=184.805, duration=184.855),
+    dict(name="MG_EightBit", jam="Eightbit", fam="MG", music_len=184.805, duration=184.855),
+    dict(name="MG_Metal",    jam="Metal",    fam="MG", music_len=184.805, duration=184.855),
+]
+
+
+# --------------------------------------------------------------------------
+# 选卡前奏（CYS = Choose Your Seeds）
+# --------------------------------------------------------------------------
+# 进关卡先播一小段循环前奏，玩家摆好卡按开始后再切到正曲。
+# 三套各按家族分开：UB（极限战斗）/ MG（演示小游戏）/ ZBT（RemadeZombotany）。
+# ⚠️ LB（保龄球）不做 —— 用户明确排除。
+#
+# musicLength 取自外部补丁 patcher.js 的硬编码规则：
+#   UB_CYS 8.5 / MG_CYS 10.5 / ZBT_CYS 8.7
+#
+# ⚠️ 各家族覆盖的世界**不一样**，不能按同一份清单生成：
+#   UB / MG  19 个世界（含 6 个 Jam：Ballad/Punk/Pop/Rap/Eightbit/Metal）+ Tutorial
+#   ZBT      14 个世界 + Fallback —— 缺 Punk/Pop/Rap/Eightbit/Metal 五条 jam 前奏，
+#            那五个世界由 Fallback 兜底（与外部补丁的做法一致）
+#
+# ⚠️ 三套都要有 Fallback 通用前奏：
+#   开局时 Jam 风格还没定（Ballad/Punk/… 由 boombox 后切），选卡阶段只需要一条通用的。
+#   查表时先按世界查，查不到就落到 Fallback，再查不到才回退官方曲。
+#
+# 这些条目同样**追加在末尾**，不打乱已有下标。
+_CYS_COMMON = ["Egypt", "Pirate", "Cowboy", "Kongfu", "Future", "Dark",
+               "Beach", "Iceage", "Lostcity", "Sky", "Dino", "Modern"]
+_CYS_JAM = ["Ballad", "Punk", "Pop", "Rap", "Eightbit", "Metal"]
+
+CYS_TRACKS = []
+for _fam, _ml, _dur in (("UB", 8.5, 9.05), ("MG", 10.5, 10.55)):
+    for _w in _CYS_COMMON + _CYS_JAM + ["Tutorial"]:
+        CYS_TRACKS.append(dict(name=f"RZ_{_fam}_CYS_{_w}", fam=_fam,
+                               cys_world=_w, music_len=_ml, duration=_dur))
+    # 通用兜底（Jam 世界开局风格未定，用它）
+    CYS_TRACKS.append(dict(name=f"RZ_{_fam}_CYS_Fallback", fam=_fam,
+                           cys_world="Fallback", music_len=_ml, duration=_dur))
+for _w in _CYS_COMMON + ["Ballad"] + ["Tutorial"]:
+    CYS_TRACKS.append(dict(name=f"RZ_ZBT_CYS_{_w}", fam="ZBT",
+                           cys_world=_w, music_len=8.7, duration=8.75))
+CYS_TRACKS.append(dict(name="RZ_ZBT_CYS_Fallback", fam="ZBT",
+                       cys_world="Fallback", music_len=8.7, duration=8.75))
+
+ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS + CYS_TRACKS
 
 # 参与 switchMusic 的「世界 → 曲目」分派的音轨（含 Jam）
 WORLD_TRACKS = [t for t in (TRACKS + JAM_TRACKS) if t["world_enum"]]
@@ -376,7 +450,319 @@ def patch_index_js(js):
                         f"插入 {len(VICTORY_TRACKS)} 个世界分支，"
                         f"default 保留 {FALLBACK_VICTORY}"))
 
-    return js, changes, ([] if js == orig else ["index.js"])
+    # ---- S9: 选卡前奏（CYS）----
+    # 0.16.0 里 CYS_Start 只服务「普通关卡」：levelController 给无 MusicType 的关卡
+    # 设 startingMusic=CYS_Start，而 MiniGame_A/B/C 直接跳各自分支，**不播前奏**。
+    #
+    # 做法分两半：
+    #   a) levelController 的 case 14/16/17：把 MiniGame_A/B/C 的 startingMusic 记到
+    #      window.__cys_target，先给 CYS_Start，开局时再切回。
+    #   b) switchMusic 里 CYS_Start / CYS_LP 两个档位改成查家族表：
+    #      按 window.__cys_fam（'UB'/'MG'/'ZBT'）和世界选对应前奏曲。
+    #
+    # 只改 UB/MG/ZBT 三套；LB 不碰（用户明确排除）。
+    cys_map = {}
+    for t in CYS_TRACKS:
+        cys_map.setdefault(t["fam"], {})[t["cys_world"]] = t["name"]
+
+    js, ch = _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes)
+    changes.extend(ch)
+
+    return js, changes, ([] if js == orig else ["index.html"])
+
+
+def _js_obj(d):
+    """把 {世界: 音轨名} 写成 JS 对象字面量（值用枚举成员）。"""
+    return ("{" + ",".join(f"{k}:A.{v}" for k, v in d.items()) + "}")
+
+
+def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
+    """选卡前奏补丁。返回 (新 js, 改动列表)。"""
+    out = []
+
+    # --- a) 全局家族表 ---
+    # ⚠️ 插入位置必须落在**语句位**。这个 bundle 里 switchMusic 是这么定义的：
+    #     e}a(e,t);var o=e.prototype;return o.switchMusic=function(){...}
+    # 所以「switchMusic=function(){」前面是 `return o.` —— 在那里插东西会变成
+    # `return o.window.__CYS_TBL=...`，把整个类方法表拆掉，游戏直接起不来。
+    # 正确位置是 `return` **之前**（`;var o=e.prototype;` 之后），那是语句边界。
+    marker = "window.__CYS_TBL="
+    if marker in js:
+        out.append(("S9a CYS 家族表", "已存在，跳过"))
+    else:
+        tbl = "window.__CYS_TBL={" + ",".join(
+            f'{fam}:{_js_obj(d)}' for fam, d in cys_map.items()) + "};"
+        anchor = "return o.switchMusic=function(){"
+        pos = js.find(anchor)
+        if pos < 0:
+            raise Fail("S9a 找不到 switchMusic 的 return 锚点")
+        boot = (tbl
+                + "window.__cys_fam=null;window.__cys_target=null;"
+                  "window.__cys_sm=null;"
+                  "window.__cys_resume=function(){"
+                  "var _t=window.__cys_target;"
+                  "if(_t==null)return;"
+                  # 告诉 S9f 那段「选卡后切哪首」的钩子：切这个，别切 Stage1_Start
+                  "window.__cys_keep=_t;"
+                  "window.__cys_fam=null;"
+                  "var _n=0,_go=function(){"
+                  "try{"
+                  # 实例可能还没拿到（resume 早于第一次 switchMusicSort），
+                  # 没拿到就等下一轮，别把 target 丢掉。
+                  "var _m=window.__cys_sm;"
+                  "if(!_m||typeof _m.switchMusicSort!=='function'){"
+                  "if(_n++<50){setTimeout(_go,50);}return;}"
+                  "window.__cys_target=null;"
+                  "try{_m.currentTauriAudio&&_m.currentTauriAudio.stop();}catch(_x){}"
+                  "try{_m.currentTauriAudio=null;_m.waiting=!1;}catch(_x){}"
+                  "var _p=_m.switchMusicSort(_t,!1,!1,!0);"
+                  # switchMusicSort 是 async，返回 Promise。等它完成后再看结果。
+                  "var _chk=function(){"
+                  "try{"
+                  "var _cur=_m.currentMusicType;"
+                  "if(_cur==null||isNaN(_cur)){"
+                  "if(_n++<20){setTimeout(_chk,80);}return;}"
+                  "}catch(_e){}"
+                  "};"
+                  "if(_p&&typeof _p.then==='function'){_p.then(_chk,_chk);}else{_chk();}"
+                  "}catch(_e){if(window.__DBG_MUSIC)console.error('[cys] '+_e);}"
+                  "};_go();"
+                  "};")
+        js = js[:pos] + boot + js[pos:]
+        out.append(("S9a CYS 家族表", f"{sum(len(d) for d in cys_map.values())} 条"))
+
+    # --- b) levelController：记下目标，先播前奏 ---
+    # 原样：case 14:return this.startingMusic=ge.UltimateBattle,e.abrupt("break",19);
+    #       case 16:return this.startingMusic=ge.DemonstrateMinigame,e.abrupt("break",19);
+    #       case 17:return this.startingMusic=ge.MiniGameC,e.abrupt("break",19);
+    fam_of_case = {"UltimateBattle": "UB", "DemonstrateMinigame": "MG",
+                   SORT_MEMBER: "ZBT"}
+    done = []
+    for member, fam in fam_of_case.items():
+        pat = (r'return this\.startingMusic=(' + r'[A-Za-z_$][\w$]*'
+               + r')\(' + r'\.' + re.escape(member) + r'\),e\.abrupt\("break",(\d+)\);')
+        pat = (r'return this\.startingMusic=([A-Za-z_$][\w$]*)\.'
+               + re.escape(member) + r',e\.abrupt\("break",(\d+)\);')
+        m = re.search(pat, js)
+        if not m:
+            continue
+        if f'window.__cys_fam="{fam}"' in js:
+            continue
+        ME, brk = m.group(1), m.group(2)
+        new = (f'return window.__cys_target={ME}.{member},'
+               f'window.__cys_fam="{fam}",'
+               f'this.startingMusic={ME}.CYS_Start,'
+               f'e.abrupt("break",{brk});')
+        js = js[:m.start()] + new + js[m.end():]
+        done.append(fam)
+    if done:
+        out.append(("S9b 关卡入口", f"{', '.join(done)} 改为先播前奏"))
+    else:
+        out.append(("S9b 关卡入口", "已存在，跳过"))
+
+    # --- c) 开局：从 CYS 切回正曲 ---
+    # 挂载点选得对不对，直接决定「点了开始但前奏还在响」会不会发生。
+    #
+    # 时间线（实测顺序）：
+    #   c.letsRock()               ← 玩家点「开始」按钮
+    #       ↓ 收卡槽、镜头移动                       ← 这期间还是选卡音乐
+    #   readySetPlant()
+    #       ↓ Ready(0.6s) + Set(0.6s) + Plant(1s)    ← 还在选卡音乐
+    #   c.gameStart()              ← **真正开局**，僵尸开始出、计时开始
+    #
+    # 太早（letsRock）会把选卡音乐提前掐断，玩家还在看卡组时就换成战斗曲了；
+    # 太晚（readySetPlant 中间）又会有明显延迟。
+    # 正确位置就是 levelController 的 c.gameStart —— 开局那一刻。
+    #
+    # 其余两处保留作兜底（resume 幂等，先到的生效，后到的因为 target 已清空而 no-op）。
+    if "window.__cys_resume()" in js:
+        out.append(("S9c 开局切回", "已存在，跳过"))
+    else:
+        n = 0
+        # 主钩子：levelController.gameStart（真开局）
+        main_anchor = "c.gameStart=function(){if(!this.gameStarted){"
+        if main_anchor in js:
+            js = js.replace(main_anchor,
+                            main_anchor + "window.__cys_resume();", 1)
+            n += 1
+        # 兜底 1：卡片区 gameStart
+        fb1 = "if(!this.gameStarted){this.gameStarted=!0,this.CFs"
+        if fb1 in js:
+            js = js.replace(fb1,
+                            "if(!this.gameStarted){window.__cys_resume(),"
+                            "this.gameStarted=!0,this.CFs", 1)
+            n += 1
+        # 兜底 2：readySetPlant 的末尾
+        fb2 = "case 15:t.gameStart()"
+        if fb2 in js:
+            js = js.replace(fb2, "case 15:window.__cys_resume(),t.gameStart()", 1)
+            n += 1
+        if n == 0:
+            raise Fail("S9c 找不到 gameStart 锚点")
+        out.append(("S9c 开局切回", f"{n} 处（主钩子在 levelController.gameStart）"))
+
+    # --- d) switchMusic：CYS_Start / CYS_LP 按家族选曲 ---
+    # 每个世界分支里都是 `a==v.CYS_Start?(u=A.CYS_Start_X,L=v.CYS_LP,g=!1)`
+    # 换成查表：__CYS_TBL[fam][世界] || __CYS_TBL[fam].Fallback || 原值
+    #
+    # ⚠️ 为什么要有 Fallback 这一级：
+    #   开局时 Jam 世界还没确定风格（Ballad/Punk/Pop/… 由 boombox 后切），
+    #   所以选卡前奏**只需要一条通用的**就够了。
+    #   ZBT 只做了 14 个世界 + Fallback 一条通用前奏，
+    #   Jam 世界（Punk/Pop/Rap/Eightbit/Metal）查不到 → 用 Fallback 兜底。
+    #   不加这一级的话会落到官方的 CYS_Start_Eighties，听到的就是原版曲。
+    pat_start = (r'a==v\.CYS_Start\?\(u=A\.(CYS_Start_(\w+)),L=v\.CYS_LP,g=!1\)')
+    n_start = len(re.findall(pat_start, js))
+
+    def repl_start(m):
+        orig = m.group(1)
+        sfx = m.group(2)
+        return (f'a==v.CYS_Start?(u=((window.__cys_fam&&window.__CYS_TBL'
+                f'[window.__cys_fam]&&(window.__CYS_TBL[window.__cys_fam].{sfx}'
+                f'||window.__CYS_TBL[window.__cys_fam].Fallback))'
+                f'||A.{orig}),L=v.CYS_LP,g=!1)')
+
+    def repl_lp(m):
+        orig = m.group(1)
+        sfx = m.group(2)
+        return (f'a==v.CYS_LP&&(u=((window.__cys_fam&&window.__CYS_TBL'
+                f'[window.__cys_fam]&&(window.__CYS_TBL[window.__cys_fam].{sfx}'
+                f'||window.__CYS_TBL[window.__cys_fam].Fallback))'
+                f'||A.{orig}),g=!0)')
+
+    if "Fallback))" in js and "window.__CYS_TBL[window.__cys_fam].Fallback" in js:
+        out.append(("S9d CYS 选曲", "已存在，跳过"))
+    else:
+        # 已经是旧版（无 Fallback 链）的话先还原不了，直接整体重写一次
+        js = re.sub(
+            r'a==v\.CYS_Start\?\(u=\(\(window\.__cys_fam&&window\.__CYS_TBL'
+            r'\[window\.__cys_fam\]&&window\.__CYS_TBL\[window\.__cys_fam\]\.(\w+)\)'
+            r'\|\|A\.(CYS_Start_\w+)\),L=v\.CYS_LP,g=!1\)',
+            lambda m: (f'a==v.CYS_Start?(u=((window.__cys_fam&&window.__CYS_TBL'
+                       f'[window.__cys_fam]&&(window.__CYS_TBL[window.__cys_fam].{m.group(1)}'
+                       f'||window.__CYS_TBL[window.__cys_fam].Fallback))'
+                       f'||A.{m.group(2)}),L=v.CYS_LP,g=!1)'), js)
+        js = re.sub(
+            r'a==v\.CYS_LP&&\(u=\(\(window\.__cys_fam&&window\.__CYS_TBL'
+            r'\[window\.__cys_fam\]&&window\.__CYS_TBL\[window\.__cys_fam\]\.(\w+)\)'
+            r'\|\|A\.(CYS_LP_\w+)\),g=!0\)',
+            lambda m: (f'a==v.CYS_LP&&(u=((window.__cys_fam&&window.__CYS_TBL'
+                       f'[window.__cys_fam]&&(window.__CYS_TBL[window.__cys_fam].{m.group(1)}'
+                       f'||window.__CYS_TBL[window.__cys_fam].Fallback))'
+                       f'||A.{m.group(2)}),g=!0)'), js)
+        js = re.sub(pat_start, repl_start, js)
+        n_lp = len(re.findall(r'a==v\.CYS_LP&&\(u=A\.(CYS_LP_(\w+)),g=!0\)', js))
+        js = re.sub(r'a==v\.CYS_LP&&\(u=A\.(CYS_LP_(\w+)),g=!0\)', repl_lp, js)
+        out.append(("S9d CYS 选曲",
+                    f"CYS_Start {n_start} 处 / CYS_LP {n_lp} 处（缺世界用 Fallback）"))
+
+    # --- f) 选卡结束后别让引擎把 nextSortToPlay 改回 Stage1_Start ---
+    # 引擎在 gameStart 里有一段：
+    #   var a=pe.component.currentMusicSort;
+    #   a!=ge.CYS_LP&&a!=ge.CYS_Start||pe.component&&(
+    #       pe.component.nextSortToPlay=ge.Stage1_Start)
+    # 意思是「还在播选卡曲的话，下一首切世界正曲」。
+    # 对 MiniGame 关卡这是错的 —— 我们要切 UB/MG/MiniGameC，不是世界 Stage1。
+    # 用户听到的「大世界 Egypt 音乐」就是这条来的。
+    #
+    # 解法：resume 时把目标存进 __cys_keep，这里消费并清空它。
+    old_line = ("a!=ge.CYS_LP&&a!=ge.CYS_Start||pe.component&&"
+                "(pe.component.nextSortToPlay=ge.Stage1_Start)")
+    new_line = ("a!=ge.CYS_LP&&a!=ge.CYS_Start||pe.component&&"
+                "(pe.component.nextSortToPlay=(function(){"
+                "var _k=window.__cys_keep;window.__cys_keep=null;"
+                "return _k!=null?_k:ge.Stage1_Start})())")
+    # ⚠️ 检测必须看**原始串**在不在，不能只看 __cys_keep ——
+    # resume 里早就写了 __cys_keep，用它判断会永远误判成"已存在"。
+    if old_line not in js:
+        out.append(("S9f 选卡后切曲", "已改写，跳过"))
+    else:
+        js = js.replace(old_line, new_line, 1)
+        out.append(("S9f 选卡后切曲", "改为优先用 __cys_keep"))
+
+    # --- e) 记住 soundManager 实例，供 __cys_resume 调用 ---
+    # ⚠️ 这里踩过一个很隐蔽的坑，记录清楚：
+    #
+    # switchMusicSort 是这么定义的（**注意末尾的 ()，外层是个 IIFE**）：
+    #     o.switchMusicSort=function(){
+    #         var t=S(n().mark(...));
+    #         return function(e,a,r,_){return t.apply(this,arguments)}
+    #     }(),
+    #
+    # 外层 IIFE 被立即调用，那里的 `this` 是 **window**，不是 SoundManager 实例。
+    # 一开始我把 `window.__cys_sm=this` 插在 IIFE 开头，结果 __cys_sm 一直指向
+    # window —— resume 里所有 `_m.waiting` / `_m.switchMusicSort` 都是 undefined，
+    # 异常又被 catch 吞掉，表现为「点了开始前奏不停」且**没有任何报错**。
+    #
+    # 而且不能只靠 switchMusicSort 赋值：它要等第一次切歌才被调用，
+    # 而 resume 可能更早触发。所以主力挂 onLoad（组件一加载就拿到实例），
+    # switchMusicSort 里再兜一次。
+    if "window.__cys_sm=" in js and "window.__cys_sm=this" in js:
+        out.append(("S9e 实例引用", "已存在，跳过"))
+    else:
+        done = []
+        # 主力：SoundManager 的 onLoad（用 musicJson 定位，唯一）
+        onload_anchor = ('o.onLoad=function(){this.CurrentMusicSPD=M.getRandomFromRange('
+                         'l.MusicSpeedRange)')
+        if onload_anchor in js:
+            js = js.replace(
+                onload_anchor,
+                "o.onLoad=function(){window.__cys_sm=this;"
+                "this.CurrentMusicSPD=M.getRandomFromRange(l.MusicSpeedRange)", 1)
+            done.append("onLoad")
+        # 兜底：switchMusicSort 的包装函数（这里的 this 才是实例）
+        wrap_anchor = ("return function(e,a,r,_){return t.apply(this,arguments)}}(),"
+                       "o.insertMusic=")
+        if wrap_anchor in js:
+            js = js.replace(
+                wrap_anchor,
+                "return function(e,a,r,_){window.__cys_sm=this;"
+                "return t.apply(this,arguments)}}(),o.insertMusic=", 1)
+            done.append("switchMusicSort")
+        if not done:
+            raise Fail("S9e 找不到实例记录锚点")
+        out.append(("S9e 实例引用", " + ".join(done)))
+
+    # --- g) Jam 世界：切到 UB/MG/ZBT 前先放行（对应外部补丁第 835 行）---
+    # switchMusicSort 的守卫是：
+    #     if(void 0===a&&...,void 0===r&&...,void 0===_&&...,
+    #        e!=this.currentMusicSort && !this.isJam){ t.next=5;break }
+    #     return t.abrupt("return", this.currentMusicType)
+    #
+    # 只要 isJam 为 true 就直接返回当前曲、什么都不做。
+    # Jam 世界（Ballad/Punk/Pop/Rap/Eightbit/Metal）以及玄光魔音游的关卡
+    # 会被置 isJam=!0，于是我们的 UB/MG/ZBT 曲永远切不过去。
+    #
+    # 外部补丁的做法就是「切之前先把 isJam 清掉」：
+    #     if(this.isJam&&(cys标志)&&t!=this.currentMusicSort){this.isJam=!1;}
+    #
+    # 这里用同样的条件，只是把「cys 标志」换成「目标是 UB/MG/MiniGameC」。
+    # 插在 if 的条件序列里（逗号表达式），是表达式位，安全。
+    jam_guard = (f"e!=this.currentMusicSort&&(e=={SORT}.UltimateBattle"
+                 f"||e=={SORT}.DemonstrateMinigame||e=={SORT}.{SORT_MEMBER})"
+                 f"&&(this.isJam=!1),")
+    if jam_guard in js:
+        out.append(("S9g Jam 放行", "已存在，跳过"))
+    else:
+        anchor = "void 0===_&&(_=!0),e!=this.currentMusicSort&&!this.isJam){"
+        if anchor not in js:
+            raise Fail("S9g 找不到 switchMusicSort 的守卫")
+        js = js.replace(anchor, "void 0===_&&(_=!0)," + jam_guard
+                        + "e!=this.currentMusicSort&&!this.isJam){", 1)
+        out.append(("S9g Jam 放行", "isJam 时先放行 UB/MG/MiniGameC"))
+
+    # --- h) Jam 世界的 MiniGameC 分支：**不需要单独加** ---
+    # 曾经试过在每个 Jam 世界的分支入口（case 122 / 146 / …）插
+    #     case 122:if(a==v.MiniGameC){u=A.RZ_Ballad,...}
+    # 但那是死代码 —— 因为 switchMusic 在 case 7 就有一段前置判定：
+    #     if(a==v.MiniGameC){switch(e){ ... case w.Eighties:u=A.RZ_Ballad; ... default:u=A.RZ_Future; }}
+    # 它覆盖所有世界（含 default），并且直接 t.next=270 跳到播放，
+    # 根本走不到后面的世界分派 case。
+    #
+    # 所以 Jam 世界 + MiniGame_C 已经不依赖这里的任何改动，
+    # 靠 S7 / S7b 就够了。外部补丁同样没有给 Jam 分支加 ZBT case。
+
+    return js, out
 
 
 # --------------------------------------------------------------------------
@@ -462,6 +848,46 @@ def patch_musics(repo, text):
     return text, changes, ([] if text == orig else ["musics"])
 
 
+def patch_jam_ubmg(repo, text):
+    """劫持引擎已有的 UB_Punk / MG_Punk 等 12 条，改它们的 tauri 和 musicLength。
+
+    这是外部补丁的核心手法 —— **不新增条目**，只改已有条目的指向。
+    好处是 switchMusic 里的 `u=A.UB_Ballad` 等下标完全不用动，
+    兼容性最好。
+
+    这些条目原本指向 Music_Future_UB / Music_Future_MG
+    （官方偷懒用 Future 的曲子顶替所有 Jam 风格）。
+    """
+    changes = []
+    orig = text
+    touched = 0
+    for t in JAM_UBMG_TRACKS:
+        key = "rk_" + t["name"]  # 与 RZ_* 同一套 manifest 前缀，避免撞上游 key
+        pat = re.compile(r'("name":"' + re.escape(t["name"]) +
+                         r'","tauri":")([^"]*)(")')
+        m = pat.search(text)
+        if not m:
+            raise Fail(f"Musics 里找不到条目 {t['name']}")
+        if m.group(2) != key:
+            text = text[:m.start(2)] + key + text[m.end(2):]
+            touched += 1
+        # 同步 musicLength
+        pat2 = re.compile(r'("name":"' + re.escape(t["name"]) +
+                          r'","tauri":"[^"]*","musicLength":)([0-9.]+)')
+        m2 = pat2.search(text)
+        if m2:
+            new = _num(t["music_len"])
+            if m2.group(2) != new:
+                text = text[:m2.start(2)] + new + text[m2.end(2):]
+                touched += 1
+    if touched:
+        changes.append(("MJ Jam 的 UB/MG 条目",
+                        f"劫持 {len(JAM_UBMG_TRACKS)} 条（tauri + musicLength）"))
+    else:
+        changes.append(("MJ Jam 的 UB/MG 条目", "已存在，跳过"))
+    return text, changes, ([] if text == orig else ["musics"])
+
+
 # --------------------------------------------------------------------------
 # manifest.json
 # --------------------------------------------------------------------------
@@ -473,7 +899,9 @@ def patch_manifest(repo):
     text = read_text(p)
     changes = []
     orig = text
-    absent = [t for t in ALL_TRACKS if manifest_key(t) not in text]
+    # Jam 的 UB/MG 走同一套 rk_ 前缀，也要注册
+    wanted = ALL_TRACKS + JAM_UBMG_TRACKS
+    absent = [t for t in wanted if manifest_key(t) not in text]
     if not absent:
         changes.append(("A1 manifest", "已存在，跳过"))
         return text, changes, ([] if text == orig else [])
@@ -602,7 +1030,7 @@ def verify(repo):
     mp = os.path.join(repo, "docs", "audio", "manifest.json")
     if os.path.exists(mp):
         man = json.loads(read_text(mp))
-        for t in ALL_TRACKS:
+        for t in ALL_TRACKS + JAM_UBMG_TRACKS:
             k = manifest_key(t)
             if k not in man:
                 problems.append(f"manifest 缺 {k}")
@@ -659,6 +1087,11 @@ def main():
 
         mj_path, mj_src = find_musics_json(repo)
         mj_dst, mchanges, mtouched = patch_musics(repo, mj_src)
+        # Jam 的 UB/MG 是「劫持已有条目」，必须在 patch_musics 之后跑
+        mj_dst, jchanges, jtouched = patch_jam_ubmg(repo, mj_dst)
+        mchanges = mchanges + jchanges
+        if jtouched and not mtouched:
+            mtouched = jtouched
         print(f"── Musics（{os.path.relpath(mj_path, repo)}）──")
         for name, desc in mchanges:
             print(f"   {name:28s} {desc}")
