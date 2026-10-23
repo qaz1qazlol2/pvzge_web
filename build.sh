@@ -153,12 +153,55 @@ if [ -f "$SYNCVER" ]; then
   echo "----------------------------------------------------------------------"
 fi
 
-# 编译/打包 + 校验
+# 构建期失败计数。以前这些管道把退出码吃掉了（`cmd | grep | tail` 的
+# 返回码是 tail 的，永远是 0），导致 publish 明明报 NU1101 失败、
+# 脚本却继续把**旧的** exe 复制进 dist 并打印「完成」。
+FAILED=0
+
+# dotnet publish + 失败重试
+# NuGet 有时会因为 obj/ 里的还原状态陈旧而报：
+#   NU1101 找不到包 Microsoft.{NETCore,WindowsDesktop,AspNetCore}.App.Runtime.win-x64
+# 但本机 ~/.nuget/packages 里其实是有的。清掉 obj/ 重新还原即可。
+dotnet_publish() {   # $1=csproj  $2=输出目录  $3=标签
+  local proj="$1" out="$2" tag="$3" rc
+
+  "$DOTNET" publish "$proj" -c Release -o "$out" --nologo 2>&1 \
+    | grep -E " -> |error|warning CS" | tail -4
+  rc=${PIPESTATUS[0]}
+
+  if [ "$rc" != "0" ]; then
+    echo "      [重试] 清 obj 后重新还原（常见原因：NU1101 缓存陈旧）"
+    rm -rf "$(dirname "$proj")/obj"
+    "$DOTNET" publish "$proj" -c Release -o "$out" --nologo 2>&1 \
+      | grep -E " -> |error|warning CS" | tail -4
+    rc=${PIPESTATUS[0]}
+  fi
+
+  if [ "$rc" != "0" ]; then
+    echo "      [失败] $tag 编译失败（exit=$rc）"
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
+  return 0
+}
+
+# 打包 + 校验
 pack_and_verify() {   # $1=基础exe  $2=输出exe
   echo "      打包 -> $2"
   "$PY" "$PACK" "$1" "$GAMEDIR" "$2" 2>&1 | tail -4
+  if [ "${PIPESTATUS[0]}" != "0" ]; then
+    echo "      [失败] 打包出错"
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
   echo "      校验:"
   "$PY" "$VERIFY" "$2" "$GAMEDIR" 2>&1 | tail -3
+  if [ "${PIPESTATUS[0]}" != "0" ]; then
+    echo "      [失败] 内嵌归档校验未通过"
+    FAILED=$((FAILED + 1))
+    return 1
+  fi
+  return 0
 }
 
 # ---------- [1] Tauri 桌面版 ----------
@@ -170,6 +213,10 @@ do_tauri() {
       echo "      [跳过] 没找到 cargo（装 Rust 或指定 CARGO=...）"
     else
       bash "$TAURI_DIR/build_tauri.sh" "$TAURI_DIR/src-tauri" 2>&1 | grep -E "Finished|error|EXITCODE" | tail -4
+      if [ "${PIPESTATUS[0]}" != "0" ]; then
+        echo "      [失败] Tauri 编译出错"
+        FAILED=$((FAILED + 1))
+      fi
     fi
   else
     echo "      跳过编译（SKIP_BUILD=1）"
@@ -192,8 +239,8 @@ do_web() {
       echo "      刷新 Shared.cs（从 launcher/src/Program.cs 抽取）..."
       "$PY" "$WS_DIR/extract_shared.py" 2>&1 | tail -4
       echo "      dotnet publish..."
-      "$DOTNET" publish "$WS_DIR/src/PvZGE-WebServer.csproj" -c Release -o "$WS_DIR/publish" --nologo 2>&1 \
-        | grep -E "PvZGE-WebServer ->|error|warning CS" | tail -3
+      dotnet_publish "$WS_DIR/src/PvZGE-WebServer.csproj" "$WS_DIR/publish" "Web 服务器" \
+        || echo "      [继续] 用现有 exe 打包（若也没有则会失败）"
     fi
   else
     echo "      跳过编译（SKIP_BUILD=1）"
@@ -215,8 +262,8 @@ do_launcher() {
     if [ -z "$DOTNET" ]; then
       echo "      [跳过编译] 没找到 dotnet"
     else
-      "$DOTNET" publish "$LN_DIR/src/PvZGE-Launcher.csproj" -c Release -o "$LN_DIR/publish" --nologo 2>&1 \
-        | grep -E "PvZGE-Launcher ->|error|warning CS" | tail -3
+      dotnet_publish "$LN_DIR/src/PvZGE-Launcher.csproj" "$LN_DIR/publish" "启动器" \
+        || echo "      [继续] 用现有 exe 打包（若也没有则会失败）"
     fi
   else
     echo "      跳过编译（SKIP_BUILD=1）"
@@ -248,6 +295,11 @@ fi
 
 echo
 echo "======================================================================"
-echo "  完成。产物目录: $DIST"
+if [ "$FAILED" != "0" ]; then
+  echo "  完成，但有 $FAILED 个步骤失败（见上面的 [失败] 标记）。"
+else
+  echo "  完成。产物目录: $DIST"
+fi
 ls -la "$DIST" 2>/dev/null | tail -n +2
 echo "======================================================================"
+exit $([ "$FAILED" = "0" ] && echo 0 || echo 1)
