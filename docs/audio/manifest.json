@@ -570,5 +570,11 @@
   "rk_RZ_LC_Victory": "Music/inGame/RZ_LC_Victory/RZ_LC_Victory.mp3",
   "rk_RZ_SK_Victory": "Music/inGame/RZ_SK_Victory/RZ_SK_Victory.mp3",
   "rk_RZ_JM_Victory": "Music/inGame/RZ_JM_Victory/RZ_JM_Victory.mp3",
-  "rk_RZ_MD_Victory": "Music/inGame/RZ_MD_Victory/RZ_MD_Victory.mp3"
+  "rk_RZ_MD_Victory": "Music/inGame/RZ_MD_Victory/RZ_MD_Victory.mp3",
+  "rk_RZ_Ballad": "Music/inGame/RZ_Ballad/RZ_Ballad.mp3",
+  "rk_RZ_Punk": "Music/inGame/RZ_Punk/RZ_Punk.mp3",
+  "rk_RZ_Pop": "Music/inGame/RZ_Pop/RZ_Pop.mp3",
+  "rk_RZ_Rap": "Music/inGame/RZ_Rap/RZ_Rap.mp3",
+  "rk_RZ_Eightbit": "Music/inGame/RZ_Eightbit/RZ_Eightbit.mp3",
+  "rk_RZ_Metal": "Music/inGame/RZ_Metal/RZ_Metal.mp3"
 }

@@ -108,7 +108,31 @@ VICTORY_TRACKS = [
 ]
 
 FALLBACK_VICTORY = "RZ_Victory"
-ALL_TRACKS = TRACKS + VICTORY_TRACKS
+
+# --------------------------------------------------------------------------
+# 炫光魔音游（Jam 世界）的曲目
+# --------------------------------------------------------------------------
+# 这些世界在引擎里走 isJam 分支（`this.isJam=!0`，动态分层变奏），
+# 曲目结构与常规世界不同。八零世界（Eighties）在引擎里复用 Ballad 的分支，
+# 所以 Eighties 映射到 RZ_Ballad（与外部补丁的别名处理一致）。
+#
+# ⚠️ 追加在 ALL_TRACKS 的**最末尾**，这样已有的 260..284 下标不会挪动。
+JAM_TRACKS = [
+    dict(name="RZ_Ballad",   world="Ballad",   world_enum="Ballad",   src_uuid="b7000019", music_len=181, duration=184.941),
+    dict(name="RZ_Punk",     world="Punk",     world_enum="Punk",     src_uuid="b700001a", music_len=181, duration=184.941),
+    dict(name="RZ_Pop",      world="Pop",      world_enum="Pop",      src_uuid="b700001b", music_len=181, duration=184.941),
+    dict(name="RZ_Rap",      world="Rap",      world_enum="Rap",      src_uuid="b700001c", music_len=181, duration=184.941),
+    dict(name="RZ_Eightbit", world="Eightbit", world_enum="Eightbit", src_uuid="b700001d", music_len=181, duration=184.941),
+    dict(name="RZ_Metal",    world="Metal",    world_enum="Metal",    src_uuid="b700001e", music_len=181, duration=184.941),
+]
+
+# 世界枚举值 → 实际使用的音轨。Eighties 复用 Ballad 的曲子。
+WORLD_ALIASES = {"Eighties": "RZ_Ballad"}
+
+ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS
+
+# 参与 switchMusic 的「世界 → 曲目」分派的音轨（含 Jam）
+WORLD_TRACKS = [t for t in (TRACKS + JAM_TRACKS) if t["world_enum"]]
 
 
 class Fail(Exception):
@@ -184,24 +208,28 @@ def patch_index_js(js):
         js = js[:tail] + ins + js[tail:]
         changes.append(("S1 MusicSortEnum", f"新增 {SORT_MEMBER}={base}"))
 
-    # ---- S2: MusicEnum += 25 条 RZ_*，MusicAmount 顺延 ----
-    if f'.{TRACKS[0]["name"]}=' in js:
+    # ---- S2: MusicEnum += RZ_*，MusicAmount 顺延 ----
+    # 支持增量：已经存在的成员不动，只把新增的（如后期的 Jam 曲）按 ALL_TRACKS
+    # 的顺序追加到 MusicAmount 之前，并同步把 MusicAmount 往后推。
+    m_am = re.search(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
+                     r"\.MusicAmount=(\d+)\]=\"MusicAmount\"", js)
+    if not m_am:
+        raise Fail("S2 找不到 MusicAmount 哨兵")
+    amount = int(m_am.group(1))
+    absent = [t for t in ALL_TRACKS
+              if f'.{t["name"]}=' not in js]
+    if not absent:
         changes.append(("S2 MusicEnum", "已存在，跳过"))
     else:
-        m = re.search(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
-                      r"\.MusicAmount=(\d+)\]=\"MusicAmount\"", js)
-        if not m:
-            raise Fail("S2 找不到 MusicAmount 哨兵")
-        base = int(m.group(1))
-        items = ",".join(f'{EP}[{EP}.{t["name"]}={base + i}]="{t["name"]}"'
-                         for i, t in enumerate(ALL_TRACKS))
-        new = (f',{items},{EP}[{EP}.MusicAmount={base + len(ALL_TRACKS)}]'
+        items = ",".join(f'{EP}[{EP}.{t["name"]}={amount + i}]="{t["name"]}"'
+                         for i, t in enumerate(absent))
+        new = (f',{items},{EP}[{EP}.MusicAmount={amount + len(absent)}]'
                f'="MusicAmount"')
-        js = js[:m.start()] + new + js[m.end():]
+        js = js[:m_am.start()] + new + js[m_am.end():]
         changes.append(("S2 MusicEnum",
-                        f"新增 {len(ALL_TRACKS)} 条（{base}.."
-                        f"{base + len(ALL_TRACKS) - 1}），"
-                        f"MusicAmount {base}→{base + len(ALL_TRACKS)}"))
+                        f"新增 {len(absent)} 条（{amount}.."
+                        f"{amount + len(absent) - 1}），"
+                        f"MusicAmount {amount}→{amount + len(absent)}"))
 
     # ---- S3: 沙盒强制类型列表 ----
     needle = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss")'
@@ -270,6 +298,13 @@ def patch_index_js(js):
     # 每个分支都是「if(条件不满足){跳到下一个 case} 本体 t.next=270;break;」
     # 所以插入一个**独立语句块**即可：条件成立就处理并跳出（t.next=270），
     # 不成立就自然往下滑到原有的判定。**不需要改任何 case 编号**。
+    # 形参必须先解析（S7 跳过时 S7b 也要用）
+    m_sig = re.search(r"mark\(\(function t\((\w+),(\w+),",
+                      js[js.find("switchMusic=function("):])
+    if not m_sig:
+        raise Fail("S7 解析不出 switchMusic 的形参")
+    world_var, sort_var = m_sig.group(1), m_sig.group(2)
+
     if re.search(re.escape(SORT_MEMBER) + r"\)\{switch\(", js):
         changes.append(("S7 switchMusic 分支", "已存在，跳过"))
     else:
@@ -277,11 +312,6 @@ def patch_index_js(js):
         pos = js.find(anchor)
         if pos < 0:
             raise Fail("S7 找不到 switchMusic 的 isJam 锚点")
-        # 形参：(e=world, a=sort, ...)
-        m_sig = re.search(r"mark\(\(function t\((\w+),(\w+),", js[js.find("switchMusic=function("):])
-        if not m_sig:
-            raise Fail("S7 解析不出 switchMusic 的形参")
-        world_var, sort_var = m_sig.group(1), m_sig.group(2)
 
         cases = "".join(
             f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
@@ -292,6 +322,34 @@ def patch_index_js(js):
         js = js[:cut] + block + js[cut:]
         changes.append(("S7 switchMusic 分支",
                         f"插入 {len(TRACKS) - 1} 个世界分支"))
+
+    # ---- S7b: 把 Jam 世界的 case 补进已有的 MiniGameC switch ----
+    # S7 只插了一次，之后新增音轨（如 Jam 世界）不会自动进 switch。
+    # 这里逐个检查 case 是否存在，缺的就补进去；已有的一条也不动。
+    m_sw = re.search(r"if\(" + re.escape(sort_var) + r"==" + re.escape(SORT)
+                     + r"\." + SORT_MEMBER + r"\)\{switch\(" +
+                     re.escape(world_var) + r"\)\{(.*?)default:", js, re.S)
+    if not m_sw:
+        raise Fail("S7b 找不到 MiniGameC 的 switch 块")
+    body = m_sw.group(1)
+    missing = [t for t in JAM_TRACKS
+               if f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};' not in body]
+    # 世界别名：引擎把 Eighties 归到 Ballad 的曲目，但 case 上得单独立一条，
+    # 否则 Eighties 的关会落到 default。
+    alias_cases = [(alias, target) for alias, target in WORLD_ALIASES.items()
+                   if f"case {WORLD}.{alias}:" not in body]
+    if not missing and not alias_cases:
+        changes.append(("S7b Jam 世界 case", "已存在，跳过"))
+    else:
+        add = "".join(f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
+                      for t in missing)
+        add += "".join(f'case {WORLD}.{alias}:u={EN}.{target};break;'
+                       for alias, target in alias_cases)
+        ins_at = m_sw.start(1) + len(body)
+        js = js[:ins_at] + add + js[ins_at:]
+        desc = [t["name"] for t in missing]
+        desc += [f"{a}→{b}(别名)" for a, b in alias_cases]
+        changes.append(("S7b Jam 世界 case", "补充 " + ", ".join(desc)))
 
     # ---- S8: Victory 也按世界选曲 ----
     # 插在 UltimateBattle 那个 Victory 分支之后（它已 `break;`，后面是 case 20 标签），
@@ -361,17 +419,37 @@ def patch_musics(repo, text):
 
     if f'"{TRACKS[0]["name"]}"' in text:
         changes.append(("M1 Musics", "已存在，同步 musicLength"))
+        # 已有条目：同步 musicLength；缺失的（如后来新增的 Jam 曲）追加到数组末尾。
+        # 追加位置必须是 RZ 组之后（枚举值 = 数组下标，见 verify），
+        # 而 ALL_TRACKS 的顺序保证了新曲在最后，所以插在最后一个 RZ 条目之后即可。
+        absent = [t for t in ALL_TRACKS
+                  if f'"name":"{t["name"]}"' not in text]
         for t in ALL_TRACKS:
             pat = re.compile(r'("name":"' + re.escape(t["name"]) +
                              r'","tauri":"[^"]*","musicLength":)([0-9.]+)')
             mm = pat.search(text)
             if not mm:
-                raise Fail(f"Musics 缺 {t['name']}")
+                continue
             new = _num(t["music_len"])
             if mm.group(2) != new:
                 text = text[:mm.start(2)] + new + text[mm.end(2):]
                 changes.append((f"  {t['name']}",
                                 f"musicLength {mm.group(2)} → {new}"))
+        if absent:
+            # 找最后一个已存在的 RZ 条目，插在它后面
+            last = None
+            for t in ALL_TRACKS:
+                pat = re.compile(r'\{"name":"' + re.escape(t["name"]) +
+                                 r'","tauri":"[^"]*","musicLength":[0-9.]+\}')
+                for mm in pat.finditer(text):
+                    if last is None or mm.end() > last:
+                        last = mm.end()
+            if last is None:
+                raise Fail("M1 找不到任何已有 RZ 条目作为插入锚点")
+            items = ",".join(build(t) for t in absent)
+            text = text[:last] + "," + items + text[last:]
+            changes.append(("M1 Musics 追加",
+                            "新增 " + ", ".join(t["name"] for t in absent)))
     else:
         items = ",".join(build(t) for t in ALL_TRACKS)
         # 插在最后一条之后
@@ -388,24 +466,25 @@ def patch_musics(repo, text):
 # manifest.json
 # --------------------------------------------------------------------------
 def patch_manifest(repo):
-    """在 docs/audio/manifest.json 里注册 25 个 key。"""
+    """在 docs/audio/manifest.json 里注册 RZ 音轨的 key（支持增量）。"""
     p = os.path.join(repo, "docs", "audio", "manifest.json")
     if not os.path.exists(p):
         raise Fail(f"找不到 {p}")
     text = read_text(p)
     changes = []
     orig = text
-    if manifest_key(TRACKS[0]) in text:
+    absent = [t for t in ALL_TRACKS if manifest_key(t) not in text]
+    if not absent:
         changes.append(("A1 manifest", "已存在，跳过"))
         return text, changes, ([] if text == orig else [])
-    # 插在最后一个键之后
+    # 插在最后一个键之后（即结尾 } 之前）
     m = re.search(r'\n\}\s*$', text)
     if not m:
         raise Fail("manifest.json 结构异常（找不到结尾 }）")
     items = "".join(',\n  "%s": "%s"' % (manifest_key(t), audio_rel(t))
-                    for t in ALL_TRACKS)
+                    for t in absent)
     text = text[:m.start()] + items + text[m.start():]
-    changes.append(("A1 manifest", f"注册 {len(ALL_TRACKS)} 个 key"))
+    changes.append(("A1 manifest", f"注册 {len(absent)} 个 key"))
     return text, changes, ["manifest.json"]
 
 
