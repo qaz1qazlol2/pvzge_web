@@ -75,18 +75,18 @@ AUDIO_ROOT = os.path.join("Music", "inGame")
 # music_len  —— 循环点秒数（Musics 的 musicLength）
 # duration   —— 音频真实时长
 TRACKS = [
-    dict(name="RZ_Egypt",    world="Egypt",    world_enum="Egypt",    src_uuid="89b35a32", music_len=182.5, duration=186.24),
-    dict(name="RZ_Pirate",   world="Pirate",   world_enum="Pirate",   src_uuid="b7000001", music_len=182.5, duration=186.24),
-    dict(name="RZ_Cowboy",   world="Cowboy",   world_enum="Cowboy",   src_uuid="b7000002", music_len=181,   duration=182.88),
-    dict(name="RZ_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=183.312),
-    dict(name="RZ_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.152),
-    dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=185.496),
-    dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=182.5, duration=186.24),
-    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=182.5, duration=186.24),
-    dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.872),
-    dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=181.577143),
-    dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.416),
-    dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=181,   duration=184.344),
+    dict(name="RZ_Egypt",    world="Egypt",    world_enum="Egypt",    src_uuid="89b35a32", music_len=181, duration=184.941),
+    dict(name="RZ_Pirate",   world="Pirate",   world_enum="Pirate",   src_uuid="b7000001", music_len=181, duration=184.941),
+    dict(name="RZ_Cowboy",   world="Cowboy",   world_enum="Cowboy",   src_uuid="b7000002", music_len=181,   duration=184.941),
+    dict(name="RZ_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=184.941),
+    dict(name="RZ_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.941),
+    dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=184.941),
+    dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=181, duration=184.941),
+    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=181, duration=184.941),
+    dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.941),
+    dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
+    dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.941),
+    dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=193,   duration=196.539),
     dict(name="RZ_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=3,     duration=6.024),
 ]
 

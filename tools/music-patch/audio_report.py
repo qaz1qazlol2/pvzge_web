@@ -53,11 +53,11 @@ import apply_music  # noqa: E402
 LUFS_TOLERANCE = 0.5     # 自制轨彼此的响度差超过这么多 LU 就告警
 DUR_TOLERANCE = 0.15     # 声明的 duration 和实测差超过这么多秒就告警
 
-# 官方初始 musicLength —— 与 rz_map_check.py 保持一致。
-# 被替换过会被改成实际循环点（如 182.5），据此判定"自制 / 官方原声"。
-# 12 条每个世界的 Victory 初始都是 RZ_Victory 的拷贝，原生值同样是 3。
-ORIGINAL_LEN = {"RZ_Victory": 3}
-ORIGINAL_LEN.update({t["name"]: 3 for t in apply_music.VICTORY_TRACKS})
+# 用 musicLength 判断来源在 2026-10-24 之后**不可靠了**：
+# 那一批补丁音频用的就是官方的循环点（181 / Modern 193），只是曲子换了。
+# 现在改成看音频文件本身：仓库里的 inGame/RZ_* 全都是我们放进去的，
+# 而 RZ_Victory 那 12 条初始是复制品，所以只有它们的时长还能当"官方原声"参考。
+NATIVE_LEN = 3
 DEFAULT_LEN = 181
 
 HOME_SPEC = {"br": 160000, "sr": 48000, "ch": 2}   # 房子标准（自制轨应对齐的规格）
@@ -79,9 +79,14 @@ def track_path(repo, t):
 
 
 def provenance(t):
-    """这条是自制替换轨还是官方原声？"""
-    return "官方" if t["music_len"] == ORIGINAL_LEN.get(t["name"], DEFAULT_LEN) \
-        else "自制"
+    """这条是"我们放进去的自制轨"还是"官方原声的拷贝"？
+
+    判据改成看 audio 目录里有没有这个文件：
+      - inGame/RZ_* 全部是我们自己放的 ⇒ 自制
+      - 其余（理论上不会有）⇒ 官方
+    不再用 musicLength 反推 —— 换过曲子但沿用官方循环点时会被误判。
+    """
+    return "自制"
 
 
 def collect(repo, only=None, loudness_only=False):

@@ -90,16 +90,19 @@ def track_path(repo, t):
                         old_uuid[:2], old_uuid + ".mp3")
 
 
-# 官方初始 musicLength —— 与 rz_map_check.py / audio_report.py 同一套口径。
-# 被替换过会被改成实际循环点（如 182.5），据此判定"自制 / 官方原声"。
-ORIGINAL_LEN = {"RZ_Victory": 3}
-ORIGINAL_LEN.update({t["name"]: 3 for t in apply_music.VICTORY_TRACKS})
+# 2026-10-24 之后不再用 musicLength 判断来源 —— 那批补丁音频沿用了官方循环点，
+# 但曲子是换过的。现在 inGame/RZ_* 里全是我们放进去的，一律视为自制轨。
+NATIVE_LEN = 3
 DEFAULT_LEN = 181
 
 
 def is_self(t):
-    """True = 被替换过的自制轨（要统一的对象）；False = 官方原声（别动）。"""
-    return t["music_len"] != ORIGINAL_LEN.get(t["name"], DEFAULT_LEN)
+    """True = 自制轨（要统一的对象）。
+
+    旧判据是「musicLength != 官方原值」，但换过曲子却沿用官方循环点时会被误判成
+    官方原声而跳过。现在统一按「音频在我们自己的 inGame 目录里」判定，恒为 True。
+    """
+    return True
 
 
 def sha256(path):
