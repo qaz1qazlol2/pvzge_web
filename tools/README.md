@@ -334,11 +334,11 @@ python -X utf8 tools/xxx.py    # 单次
 
 | 类别 | 条数 | 命名 | 说明 |
 |---|---|---|---|
-| 主音轨 | 13 | `RZ_<世界名>`（`RZ_Egypt` / `RZ_Iceage`…）+ `RZ_Victory` | 12 个世界各一条 + 一条共用结算曲 |
-| 结算曲 | 12 | `RZ_<简称>_Victory`（`RZ_AE_Victory` / `RZ_IC_Victory`…） | 每个世界**独立**一条，2026-09-24 从共用的一条拆出来 |
+| 主音轨 | 13 | `ZBT_<世界名>`（`ZBT_Egypt` / `ZBT_Iceage`…）+ `ZBT_Victory` | 12 个世界各一条 + 一条共用结算曲 |
+| 结算曲 | 12 | `ZBT_<简称>_Victory`（`ZBT_AE_Victory` / `ZBT_IC_Victory`…） | 每个世界**独立**一条，2026-09-24 从共用的一条拆出来 |
 
-拆结算曲是为了**能逐条替换**：原来所有世界共用 `RZ_Victory`，改一次影响全部。
-现在 12 条是独立拷贝，`RZ_Victory` 自己保留为引擎 switch 的 `default` 兜底。
+拆结算曲是为了**能逐条替换**：原来所有世界共用 `ZBT_Victory`，改一次影响全部。
+现在 12 条是独立拷贝，`ZBT_Victory` 自己保留为引擎 switch 的 `default` 兜底。
 换任何一条都用同一个命令，`--list` 能看到全部 25 条。
 
 > **这套音轨属于 RemadeZombotany**（内部类型字符串 `MiniGame_C`，枚举 `MiniGameC=24`）。
@@ -371,7 +371,7 @@ MusicEnum(数字) → bgms[i] {tauri, musicLength}
 2. Musics 所在的文件名是**内容哈希**，上游每次重编译都会变。所以 `apply_music.py`
    不写死路径，而是在 `import/` 里搜索 `"Musics":[` 唯一出现的位置。
 
-我们的定制音频放在**独立目录** `audio/Music/inGame/RZ_<名字>/`，
+我们的定制音频放在**独立目录** `audio/Music/inGame/ZBT_<名字>/`，
 manifest key 加 `rk_` 前缀 —— 与上游的 `Music/Game/<世界>/` 和 `Music_<...>` key 完全隔离。
 
 ### 9.1 统一规格（house spec）
@@ -436,13 +436,13 @@ this.leftRepeat>0 && this.currentPlayingComponent.currentTime >= this.currentMus
 python tools/music-patch/import_track.py --list
 
 # 预览（不动任何文件，产物留一份到 %TEMP% 便于试听）
-python tools/music-patch/import_track.py --track RZ_Egypt --src "D:/videos/xxx.mp4"
+python tools/music-patch/import_track.py --track ZBT_Egypt --src "D:/videos/xxx.mp4"
 
 # 真写回
-python tools/music-patch/import_track.py --track RZ_Egypt --src "D:/videos/xxx.mp4" --apply
+python tools/music-patch/import_track.py --track ZBT_Egypt --src "D:/videos/xxx.mp4" --apply
 
 # 只要视频中间一段
-python tools/music-patch/import_track.py --track RZ_Egypt --src xx.mp4 --start 12 --end 95 --apply
+python tools/music-patch/import_track.py --track ZBT_Egypt --src xx.mp4 --start 12 --end 95 --apply
 ```
 
 `--apply` 会按顺序做：备份原 mp3（仓库**外**）→ 写新 mp3 → 改 `apply_music.py` 那一行
@@ -456,7 +456,7 @@ python tools/music-patch/import_track.py --track RZ_Egypt --src xx.mp4 --start 1
 | `gain-limit` | 线性增益 + 一级 `alimiter` + 闭环重测 | 能真正打到 -14.5（±0.2 LU），代价是削掉几个越界峰 |
 
 > 项目既有的换音频流程还有一份**仓库外**的脚本 `replace_rz_audio.sh`
-> （唯一入口文档 `RZ_AUDIO_REPLACEMENT.md`，在本机会话工作区），
+> （唯一入口文档 `ZBT_AUDIO_REPLACEMENT.md`，在本机会话工作区），
 > 功能与本文这套 Python 工具重叠：它是 5 步流程 + 服务器字节复测 + 操作日志。
 > 两套都可用；`audio_report.py` / `normalize_music.py` 是 Python 侧独有的（体检 / 统一）。
 
@@ -473,12 +473,12 @@ python tools/music-patch/import_track.py --track RZ_Egypt --src xx.mp4 --start 1
 ```bash
 # 体检（默认只读）：来源 / 规格 / 响度 / 时长一致性
 python tools/music-patch/audio_report.py --repo D:/git/pvzge_web
-python tools/music-patch/audio_report.py --repo D:/git/pvzge_web --track RZ_Egypt
+python tools/music-patch/audio_report.py --repo D:/git/pvzge_web --track ZBT_Egypt
 python tools/music-patch/audio_report.py --repo D:/git/pvzge_web --include-official
 
 # 统一响度（默认预览 + 只取自制轨，--apply 才写）
 python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web
-python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web --apply --tracks RZ_Egypt
+python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web --apply --tracks ZBT_Egypt
 python tools/music-patch/normalize_music.py --repo D:/git/pvzge_web --restore latest   # 整批回滚
 ```
 

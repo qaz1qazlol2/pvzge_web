@@ -28,11 +28,11 @@ apply_music.py —— 把 RemadeZombotany（内部类型 MiniGame_C）的音乐�
 ----------
 RemadeZombotany 是**独立的音乐类型**，不复用上游的 MG_ / VIC_ / UB_ 任何一条：
 
-  * MusicSortEnum   + MiniGameC = 24
-  * MusicEnum       + 25 条 RZ_*（260..284），MusicAmount 260 → 285
+  * MusicSortEnum   + RemadeZombotany = 24
+  * MusicEnum       + 25 条 ZBT_*（260..284），MusicAmount 260 → 285
   * Musics          + 25 条 {name,tauri,musicLength}
-  * manifest.json   + 25 个 key → inGame/RZ_*/*.mp3
-  * 音频文件         audio/Music/inGame/RZ_*/<名字>.mp3（独立目录，绝不覆盖上游）
+  * manifest.json   + 25 个 key → inGame/ZBT_*/*.mp3
+  * 音频文件         audio/Music/inGame/ZBT_*/<名字>.mp3（独立目录，绝不覆盖上游）
 
 为什么 victory 也要分世界：RemadeZombotany 是独立曲库，各世界的结算曲也要能
 单独换。上游自己的 VIC_* 只服务它自己的模式，不与我们共用。
@@ -59,25 +59,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _console_utf8  # noqa: E402,F401
 
 TYPE_TAG = "MiniGame_C"      # 对外 MusicType 字符串（游戏里叫 RemadeZombotany）
-SORT_MEMBER = "MiniGameC"    # MusicSortEnum 的成员名
-
-# --------------------------------------------------------------------------
-# 胜利曲模式：single / per-world
-# --------------------------------------------------------------------------
-# 由环境变量 MUSIC_VICTORY_MODE 控制，默认 single。
-#
-#   single      只留 RZ_Victory 一条通用曲，12 条世界专属全部不要。
-#               下标 273..284 空出来，后面的 Jam/CYS 曲目整体前移 12。
-#               这是「合集/精简」分支的做法，Music_RZbranch 用这个。
-#
-#   per-world   每个世界各有专属胜利曲（RZ_AE_Victory …）。
-#               这是全集分支的做法，Music_FullCustom 以后要一一对应时用。
-#
-# ⚠️ 两种模式的**下标布局不同**，切换模式必须整体重跑（Musics 也要跟着重排），
-#    不能只跑一半。apply_music 的增量逻辑会检测到这种不一致并直接报错。
-VICTORY_MODE = os.environ.get("MUSIC_VICTORY_MODE", "single").strip().lower()
-if VICTORY_MODE not in ("single", "per-world"):
-    raise SystemExit(f"MUSIC_VICTORY_MODE 只能是 single / per-world，收到：{VICTORY_MODE}")
+SORT_MEMBER = "RemadeZombotany"    # MusicSortEnum 的成员名
 
 # 音频根目录（相对 docs/audio/）。0.16.0 起音频从 native/ 搬到这里。
 # 注意别写成 "audio/Music/..."：audio_abs() 已经拼了 docs/audio/ 前缀。
@@ -93,77 +75,51 @@ AUDIO_ROOT = os.path.join("Music", "inGame")
 # music_len  —— 循环点秒数（Musics 的 musicLength）
 # duration   —— 音频真实时长
 TRACKS = [
-    dict(name="RZ_Egypt",    world="Egypt",    world_enum="Egypt",    src_uuid="89b35a32", music_len=181, duration=184.941),
-    dict(name="RZ_Pirate",   world="Pirate",   world_enum="Pirate",   src_uuid="b7000001", music_len=181, duration=184.941),
-    dict(name="RZ_Cowboy",   world="Cowboy",   world_enum="Cowboy",   src_uuid="b7000002", music_len=181,   duration=184.941),
-    dict(name="RZ_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=184.941),
-    dict(name="RZ_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.941),
-    dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=184.941),
-    dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=181, duration=184.941),
-    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=181, duration=184.941),
-    dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.941),
-    dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
-    dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.941),
-    dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=193,   duration=196.539),
-    # ⚠️ RZ_Victory 用的是补丁里的 ZBT_Victory.mp3（4.760s / 192k），
+    dict(name="ZBT_Egypt",    world="Egypt",    world_enum="Egypt",    src_uuid="89b35a32", music_len=181, duration=184.941),
+    dict(name="ZBT_Pirate",   world="Pirate",   world_enum="Pirate",   src_uuid="b7000001", music_len=181, duration=184.941),
+    dict(name="ZBT_Cowboy",   world="Cowboy",   world_enum="Cowboy",   src_uuid="b7000002", music_len=181,   duration=184.941),
+    dict(name="ZBT_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=184.941),
+    dict(name="ZBT_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.941),
+    dict(name="ZBT_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=184.941),
+    dict(name="ZBT_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=181, duration=184.941),
+    dict(name="ZBT_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=181, duration=184.941),
+    dict(name="ZBT_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.941),
+    dict(name="ZBT_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
+    dict(name="ZBT_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.941),
+    dict(name="ZBT_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=193,   duration=196.539),
+    # ⚠️ ZBT_Victory 用的是补丁里的 ZBT_Victory.mp3（4.760s / 192k），
     # 不是早期那个 96k / 5.993s 的占位文件。
     # musicLength 按补丁规则 = 实测时长 - 0.05。
-    dict(name="RZ_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=4.71,  duration=4.760),
+    dict(name="ZBT_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=4.71,  duration=4.760),
 ]
 
-# 每个世界一条的结算曲。命名用口述简称（冰窟 → RZ_IC_Victory）。
-# RZ_Victory 保留作 switch 的 default 兜底。
-#
-# ⚠️ 只有 VICTORY_MODE == "per-world" 时才启用。
-#    single 模式下这 12 条全部不注册，省掉 12 个下标。
-VICTORY_WORLD_TRACKS = [
-    dict(name="RZ_AE_Victory",  world="Egypt",    world_enum="Egypt",    src_uuid="b700000d", music_len=3, duration=6.024),
-    dict(name="RZ_PI_Victory",  world="Pirate",   world_enum="Pirate",   src_uuid="b700000e", music_len=3, duration=6.024),
-    dict(name="RZ_COW_Victory", world="Cowboy",   world_enum="Cowboy",   src_uuid="b700000f", music_len=3, duration=6.024),
-    dict(name="RZ_KF_Victory",  world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000010", music_len=3, duration=6.024),
-    dict(name="RZ_FF_Victory",  world="Future",   world_enum="Future",   src_uuid="b7000011", music_len=3, duration=6.024),
-    dict(name="RZ_DA_Victory",  world="Dark",     world_enum="Dark",     src_uuid="b7000012", music_len=3, duration=6.024),
-    dict(name="RZ_BWB_Victory", world="Beach",    world_enum="Beach",    src_uuid="b7000013", music_len=3, duration=6.024),
-    dict(name="RZ_IC_Victory",  world="Iceage",   world_enum="Ice",      src_uuid="b7000014", music_len=3, duration=6.024),
-    dict(name="RZ_LC_Victory",  world="Lostcity", world_enum="Lostcity", src_uuid="b7000015", music_len=3, duration=6.024),
-    dict(name="RZ_SK_Victory",  world="Sky",      world_enum="Sky",      src_uuid="b7000016", music_len=3, duration=6.024),
-    dict(name="RZ_JM_Victory",  world="Dino",     world_enum="Dino",     src_uuid="b7000017", music_len=3, duration=6.024),
-    dict(name="RZ_MD_Victory",  world="Modern",   world_enum="Modern",   src_uuid="b7000018", music_len=3, duration=6.024),
-]
-
-VICTORY_TRACKS = (VICTORY_WORLD_TRACKS if VICTORY_MODE == "per-world" else [])
-
-# 声明的音轨总数（由模式决定），增量补丁用它判断布局是否一致
-def expected_layout():
-    return [t["name"] for t in ALL_TRACKS]
-
-FALLBACK_VICTORY = "RZ_Victory"
+FALLBACK_VICTORY = "ZBT_Victory"
 
 # --------------------------------------------------------------------------
 # 炫光魔音游（Jam 世界）的曲目
 # --------------------------------------------------------------------------
 # 这些世界在引擎里走 isJam 分支（`this.isJam=!0`，动态分层变奏），
 # 曲目结构与常规世界不同。八零世界（Eighties）在引擎里复用 Ballad 的分支，
-# 所以 Eighties 映射到 RZ_Ballad（与外部补丁的别名处理一致）。
+# 所以 Eighties 映射到 ZBT_Ballad（与外部补丁的别名处理一致）。
 #
 # ⚠️ 追加在 ALL_TRACKS 的**最末尾**，这样已有的 260..284 下标不会挪动。
 JAM_TRACKS = [
-    dict(name="RZ_Ballad",   world="Ballad",   world_enum="Ballad",   src_uuid="b7000019", music_len=181, duration=184.941),
-    dict(name="RZ_Punk",     world="Punk",     world_enum="Punk",     src_uuid="b700001a", music_len=181, duration=184.941),
-    dict(name="RZ_Pop",      world="Pop",      world_enum="Pop",      src_uuid="b700001b", music_len=181, duration=184.941),
-    dict(name="RZ_Rap",      world="Rap",      world_enum="Rap",      src_uuid="b700001c", music_len=181, duration=184.941),
-    dict(name="RZ_Eightbit", world="Eightbit", world_enum="Eightbit", src_uuid="b700001d", music_len=181, duration=184.941),
-    dict(name="RZ_Metal",    world="Metal",    world_enum="Metal",    src_uuid="b700001e", music_len=181, duration=184.941),
+    dict(name="ZBT_Ballad",   world="Ballad",   world_enum="Ballad",   src_uuid="b7000019", music_len=181, duration=184.941),
+    dict(name="ZBT_Punk",     world="Punk",     world_enum="Punk",     src_uuid="b700001a", music_len=181, duration=184.941),
+    dict(name="ZBT_Pop",      world="Pop",      world_enum="Pop",      src_uuid="b700001b", music_len=181, duration=184.941),
+    dict(name="ZBT_Rap",      world="Rap",      world_enum="Rap",      src_uuid="b700001c", music_len=181, duration=184.941),
+    dict(name="ZBT_Eightbit", world="Eightbit", world_enum="Eightbit", src_uuid="b700001d", music_len=181, duration=184.941),
+    dict(name="ZBT_Metal",    world="Metal",    world_enum="Metal",    src_uuid="b700001e", music_len=181, duration=184.941),
 ]
 
 # 世界枚举值 → 实际使用的音轨。Eighties 复用 Ballad 的曲子。
-WORLD_ALIASES = {"Eighties": "RZ_Ballad"}
+WORLD_ALIASES = {"Eighties": "ZBT_Ballad"}
 
 
 # --------------------------------------------------------------------------
 # Jam 世界的 UB / MG 曲目（劫持引擎已有条目）
 # --------------------------------------------------------------------------
-# 和 RZ_* 完全不同的一套做法 —— 这里**不新增条目**，而是直接改引擎里
+# 和 ZBT_* 完全不同的一套做法 —— 这里**不新增条目**，而是直接改引擎里
 # 已经存在的 UB_Punk / MG_Punk 等 12 条的 tauri 指向我们的音频。
 #
 # 为什么这么做（外部补丁的经验）：
@@ -222,21 +178,18 @@ _CYS_JAM = ["Ballad", "Punk", "Pop", "Rap", "Eightbit", "Metal"]
 CYS_TRACKS = []
 for _fam, _ml, _dur in (("UB", 8.5, 9.05), ("MG", 10.5, 10.55)):
     for _w in _CYS_COMMON + _CYS_JAM + ["Tutorial"]:
-        CYS_TRACKS.append(dict(name=f"RZ_{_fam}_CYS_{_w}", fam=_fam,
+        CYS_TRACKS.append(dict(name=f"{_fam}_CYS_{_w}", fam=_fam,
                                cys_world=_w, music_len=_ml, duration=_dur))
     # 通用兜底（Jam 世界开局风格未定，用它）
-    CYS_TRACKS.append(dict(name=f"RZ_{_fam}_CYS_Fallback", fam=_fam,
+    CYS_TRACKS.append(dict(name=f"{_fam}_CYS_Fallback", fam=_fam,
                            cys_world="Fallback", music_len=_ml, duration=_dur))
 for _w in _CYS_COMMON + ["Ballad"] + ["Tutorial"]:
-    CYS_TRACKS.append(dict(name=f"RZ_ZBT_CYS_{_w}", fam="ZBT",
+    CYS_TRACKS.append(dict(name=f"ZBT_CYS_{_w}", fam="ZBT",
                            cys_world=_w, music_len=8.7, duration=8.75))
-CYS_TRACKS.append(dict(name="RZ_ZBT_CYS_Fallback", fam="ZBT",
+CYS_TRACKS.append(dict(name="ZBT_CYS_Fallback", fam="ZBT",
                        cys_world="Fallback", music_len=8.7, duration=8.75))
 
-ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS + CYS_TRACKS
-
-# 参与 switchMusic 的「世界 → 曲目」分派的音轨（含 Jam）
-WORLD_TRACKS = [t for t in (TRACKS + JAM_TRACKS) if t["world_enum"]]
+ALL_TRACKS = TRACKS + JAM_TRACKS + CYS_TRACKS
 
 
 class Fail(Exception):
@@ -259,7 +212,7 @@ def _num(v):
 
 
 def audio_rel(t):
-    """音频相对 audio/ 的路径：Music/inGame/RZ_Egypt/RZ_Egypt.mp3"""
+    """音频相对 audio/ 的路径：Music/inGame/ZBT_Egypt/ZBT_Egypt.mp3"""
     return "%s/%s/%s.mp3" % (AUDIO_ROOT.replace("\\", "/"), t["name"], t["name"])
 
 
@@ -286,15 +239,15 @@ def find_enum_alias(js, enum_name):
 
 
 def patch_index_js(js):
-    """给 0.16.0 的 index.js 打 MiniGameC 补丁。返回 (新文本, 改动列表)。"""
+    """给 0.16.0 的 index.js 打 RemadeZombotany 补丁。返回 (新文本, 改动列表)。"""
     changes = []
     orig = js
     EN, EP = find_enum_alias(js, "MusicEnum")          # 音乐枚举别名 + 参数
     SORT, SP = find_enum_alias(js, "MusicSortEnum")    # 排序枚举
     WORLD, _ = find_enum_alias(js, "WorldMusic")       # 世界枚举
 
-    # ---- S1: MusicSortEnum += MiniGameC ----
-    if re.search(r"\b" + SP + r"\[" + SP + r"\.MiniGameC=", js):
+    # ---- S1: MusicSortEnum += RemadeZombotany ----
+    if re.search(r"\b" + SP + r"\[" + SP + r"\.RemadeZombotany=", js):
         changes.append(("S1 MusicSortEnum", "已存在，跳过"))
     else:
         tail = js.find("t}({}))", js.find('"MusicSortEnum"'))
@@ -313,8 +266,7 @@ def patch_index_js(js):
         changes.append(("S1 MusicSortEnum", f"新增 {SORT_MEMBER}={base}"))
 
     # ---- S2: MusicEnum 重排 RZ 段 ----
-    # 不再「只追加」—— 因为 VICTORY_MODE 会在 single / per-world 之间切换，
-    # 需要**删条目**（12 条世界专属胜利曲），删完后面的下标必须整体前移，
+    # 不再「只追加」—— 增删条目后后面的下标必须整体前移，
     # 否则「枚举值 == Musics 下标」这条铁律就被破坏，bgms[i] 会取到别人的曲子。
     #
     # 做法：整段重建。以第一條 RZ 成员的原始值为基准，按 ALL_TRACKS 的顺序
@@ -324,8 +276,12 @@ def patch_index_js(js):
     if not m_am:
         raise Fail("S2 找不到 MusicAmount 哨兵")
 
+    # 改名后条目有三个前缀：ZBT_*（主曲/结算）、UB_CYS_*、MG_CYS_*。
+    # 正则必须都覆盖，否则会漏掉 40 条 CYS 前奏。
+    _NAME_ALT = r"(?:ZBT|UB_CYS|MG_CYS)_\w+"
     pat_first = re.compile(r"(?:," + re.escape(EP) + r"\[" + re.escape(EP) +
-                           r"\.(RZ_\w+)=(\d+)\]=\"RZ_\w+\")")
+                           r"\.(" + _NAME_ALT + r")=(\d+)\]=\""
+                           r"(?:" + _NAME_ALT + r")\")")
     m_first = pat_first.search(js)
     if not m_first:
         # 一条都没有：整段新插到 MusicAmount 前面
@@ -342,14 +298,15 @@ def patch_index_js(js):
         base = int(m_first.group(2))
         # 现状成员（顺序 + 下标）
         cur = re.findall(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
-                         r"\.(RZ_\w+)=(\d+)\]=\"(RZ_\w+)\"", js)
-        cur_names = [n for n, _, _ in cur]
+                         r"\.(" + _NAME_ALT + r")=(\d+)\]=\""
+                         r"(?:" + _NAME_ALT + r")\"", js)
+        cur_names = [c[0] for c in cur]
         want_names = [t["name"] for t in ALL_TRACKS]
         dropped = [n for n in cur_names if n not in want_names]
         added = [n for n in want_names if n not in cur_names]
         renum = [n for i, n in enumerate(want_names)
                  if n in cur_names and int(dict(
-                     (a, b) for a, b, _ in cur).get(n, -1)) != base + i]
+                     (c[0], c[1]) for c in cur).get(n, -1)) != base + i]
 
         if not dropped and not added and not renum:
             changes.append(("S2 MusicEnum", "布局一致，跳过"))
@@ -369,7 +326,7 @@ def patch_index_js(js):
             changes.append(("S2 MusicEnum",
                             f"{'、'.join(desc)}；共 {len(ALL_TRACKS)} 条，"
                             f"MusicAmount={base + len(ALL_TRACKS)}"
-                            f"（模式 {VICTORY_MODE}）"))
+                            ))
 
     # ---- S3: 沙盒强制类型列表 ----
     needle = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss")'
@@ -430,7 +387,7 @@ def patch_index_js(js):
         changes.append(("S6 levelController 分支",
                         f"插入 case {new_case}"))
 
-    # ---- S7: switchMusic 的 MiniGameC 分支（按世界选曲）----
+    # ---- S7: switchMusic 的 RemadeZombotany 分支（按世界选曲）----
     # 0.16.0 的 switchMusic 是 regenerator 状态机，形如：
     #     case 7: ... this.isJam=!1,o){t.next=270;break}
     #             if(a!=v.Victory||...UltimateBattle){t.next=20;break}
@@ -457,20 +414,20 @@ def patch_index_js(js):
             f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
             for t in TRACKS if t["world_enum"])
         block = (f'if({sort_var}=={SORT}.{SORT_MEMBER}){{switch({world_var}){{'
-                 f'{cases}default:u={EN}.RZ_Future;}}g=!0,t.next=270;break}}')
+                 f'{cases}default:u={EN}.ZBT_Future;}}g=!0,t.next=270;break}}')
         cut = pos + len(anchor)
         js = js[:cut] + block + js[cut:]
         changes.append(("S7 switchMusic 分支",
                         f"插入 {len(TRACKS) - 1} 个世界分支"))
 
-    # ---- S7b: 把 Jam 世界的 case 补进已有的 MiniGameC switch ----
+    # ---- S7b: 把 Jam 世界的 case 补进已有的 RemadeZombotany switch ----
     # S7 只插了一次，之后新增音轨（如 Jam 世界）不会自动进 switch。
     # 这里逐个检查 case 是否存在，缺的就补进去；已有的一条也不动。
     m_sw = re.search(r"if\(" + re.escape(sort_var) + r"==" + re.escape(SORT)
                      + r"\." + SORT_MEMBER + r"\)\{switch\(" +
                      re.escape(world_var) + r"\)\{(.*?)default:", js, re.S)
     if not m_sw:
-        raise Fail("S7b 找不到 MiniGameC 的 switch 块")
+        raise Fail("S7b 找不到 RemadeZombotany 的 switch 块")
     body = m_sw.group(1)
     missing = [t for t in JAM_TRACKS
                if f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};' not in body]
@@ -499,7 +456,7 @@ def patch_index_js(js):
     # ------------------------------------
     # ① 原版 0.16.0（master 分支）里 **ZBT 的 Victory 块是死代码**：
     #       ...u=A.UB_Victory,g=!1,s=1,t.next=270;break;
-    #       if(a==v.Victory&&this.currentMusicSort==v.MiniGameC){switch(e){...}}
+    #       if(a==v.Victory&&this.currentMusicSort==v.RemadeZombotany){switch(e){...}}
     #    它被插在 UB 的 `break;` 之后，永远不执行。
     #    所以「原版怎么弄的」在这件事上没有可参考的先例 —— 它压根没生效过。
     #
@@ -556,18 +513,18 @@ def patch_index_js(js):
         f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
         f'{{switch({WORLD}x){{}}}}',
         f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
-        f'{{switch(e){{case w.Egypt:u={EN}.RZ_AE_Victory;break;'
-        f'case w.Pirate:u={EN}.RZ_PI_Victory;break;'
-        f'case w.Cowboy:u={EN}.RZ_COW_Victory;break;'
-        f'case w.Kongfu:u={EN}.RZ_KF_Victory;break;'
-        f'case w.Future:u={EN}.RZ_FF_Victory;break;'
-        f'case w.Dark:u={EN}.RZ_DA_Victory;break;'
-        f'case w.Beach:u={EN}.RZ_BWB_Victory;break;'
-        f'case w.Ice:u={EN}.RZ_IC_Victory;break;'
-        f'case w.Lostcity:u={EN}.RZ_LC_Victory;break;'
-        f'case w.Sky:u={EN}.RZ_SK_Victory;break;'
-        f'case w.Dino:u={EN}.RZ_JM_Victory;break;'
-        f'case w.Modern:u={EN}.RZ_MD_Victory;break;'
+        f'{{switch(e){{case w.Egypt:u={EN}.ZBT_AE_Victory;break;'
+        f'case w.Pirate:u={EN}.ZBT_PI_Victory;break;'
+        f'case w.Cowboy:u={EN}.ZBT_COW_Victory;break;'
+        f'case w.Kongfu:u={EN}.ZBT_KF_Victory;break;'
+        f'case w.Future:u={EN}.ZBT_FF_Victory;break;'
+        f'case w.Dark:u={EN}.ZBT_DA_Victory;break;'
+        f'case w.Beach:u={EN}.ZBT_BWB_Victory;break;'
+        f'case w.Ice:u={EN}.ZBT_IC_Victory;break;'
+        f'case w.Lostcity:u={EN}.ZBT_LC_Victory;break;'
+        f'case w.Sky:u={EN}.ZBT_SK_Victory;break;'
+        f'case w.Dino:u={EN}.ZBT_JM_Victory;break;'
+        f'case w.Modern:u={EN}.ZBT_MD_Victory;break;'
         f'default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,t.next=270;break}}',
         # 中间版本：正向块但放在 break 之后
         f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
@@ -716,7 +673,7 @@ def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
     # --- b) levelController：记下目标，先播前奏 ---
     # 原样：case 14:return this.startingMusic=ge.UltimateBattle,e.abrupt("break",19);
     #       case 16:return this.startingMusic=ge.DemonstrateMinigame,e.abrupt("break",19);
-    #       case 17:return this.startingMusic=ge.MiniGameC,e.abrupt("break",19);
+    #       case 17:return this.startingMusic=ge.RemadeZombotany,e.abrupt("break",19);
     fam_of_case = {"UltimateBattle": "UB", "DemonstrateMinigame": "MG",
                    SORT_MEMBER: "ZBT"}
     done = []
@@ -844,7 +801,7 @@ def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
     #   a!=ge.CYS_LP&&a!=ge.CYS_Start||pe.component&&(
     #       pe.component.nextSortToPlay=ge.Stage1_Start)
     # 意思是「还在播选卡曲的话，下一首切世界正曲」。
-    # 对 MiniGame 关卡这是错的 —— 我们要切 UB/MG/MiniGameC，不是世界 Stage1。
+    # 对 MiniGame 关卡这是错的 —— 我们要切 UB/MG/RemadeZombotany，不是世界 Stage1。
     # 用户听到的「大世界 Egypt 音乐」就是这条来的。
     #
     # 解法：resume 时把目标存进 __cys_keep，这里消费并清空它。
@@ -918,7 +875,7 @@ def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
     # 外部补丁的做法就是「切之前先把 isJam 清掉」：
     #     if(this.isJam&&(cys标志)&&t!=this.currentMusicSort){this.isJam=!1;}
     #
-    # 这里用同样的条件，只是把「cys 标志」换成「目标是 UB/MG/MiniGameC」。
+    # 这里用同样的条件，只是把「cys 标志」换成「目标是 UB/MG/RemadeZombotany」。
     # 插在 if 的条件序列里（逗号表达式），是表达式位，安全。
     jam_guard = (f"e!=this.currentMusicSort&&(e=={SORT}.UltimateBattle"
                  f"||e=={SORT}.DemonstrateMinigame||e=={SORT}.{SORT_MEMBER})"
@@ -931,13 +888,13 @@ def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
             raise Fail("S9g 找不到 switchMusicSort 的守卫")
         js = js.replace(anchor, "void 0===_&&(_=!0)," + jam_guard
                         + "e!=this.currentMusicSort&&!this.isJam){", 1)
-        out.append(("S9g Jam 放行", "isJam 时先放行 UB/MG/MiniGameC"))
+        out.append(("S9g Jam 放行", "isJam 时先放行 UB/MG/RemadeZombotany"))
 
-    # --- h) Jam 世界的 MiniGameC 分支：**不需要单独加** ---
+    # --- h) Jam 世界的 RemadeZombotany 分支：**不需要单独加** ---
     # 曾经试过在每个 Jam 世界的分支入口（case 122 / 146 / …）插
-    #     case 122:if(a==v.MiniGameC){u=A.RZ_Ballad,...}
+    #     case 122:if(a==v.RemadeZombotany){u=A.ZBT_Ballad,...}
     # 但那是死代码 —— 因为 switchMusic 在 case 7 就有一段前置判定：
-    #     if(a==v.MiniGameC){switch(e){ ... case w.Eighties:u=A.RZ_Ballad; ... default:u=A.RZ_Future; }}
+    #     if(a==v.RemadeZombotany){switch(e){ ... case w.Eighties:u=A.ZBT_Ballad; ... default:u=A.ZBT_Future; }}
     # 它覆盖所有世界（含 default），并且直接 t.next=270 跳到播放，
     # 根本走不到后面的世界分派 case。
     #
@@ -975,12 +932,11 @@ def find_musics_json(repo):
 def patch_musics(repo, text):
     """把 Musics 里的 RZ 段整体重写成 ALL_TRACKS。
 
-    为什么不是「只追加」：VICTORY_MODE 会在 single / per-world 之间切换，
-    需要**删掉** 12 条世界专属胜利曲。删了之后 RZ 段必须整体前移，
+    为什么不是「只追加」：增删条目后这一段必须整体重排，
     否则「枚举值 == Musics 下标」被破坏，bgms[i] 就会取到别人的曲子。
 
     整段重写还有个好处：天然幂等，加/删/换序都一次到位。
-    RZ 段在 Musics 里是**连续**的（从 RZ_Egypt 开始到最后一个 RZ_* 结束），
+    RZ 段在 Musics 里是**连续**的（从 ZBT_Egypt 开始到最后一个 ZBT_* 结束），
     所以可以安全地整块替换。
     """
     changes = []
@@ -991,7 +947,7 @@ def patch_musics(repo, text):
                 % (t["name"], manifest_key(t), _num(t["music_len"])))
 
     # 定位 RZ 段：从第一条 RZ 条目到最后一个连续的 RZ 条目
-    pat_entry = re.compile(r'\{"name":"(RZ_\w+)","tauri":"[^"]*",'
+    pat_entry = re.compile(r'\{"name":"((?:ZBT|UB_CYS|MG_CYS)_\w+)","tauri":"[^"]*",'
                            r'"musicLength":[0-9.]+\}')
     spans = [(m.start(), m.end()) for m in pat_entry.finditer(text)]
     if not spans:
@@ -1045,7 +1001,7 @@ def patch_musics(repo, text):
         desc.append(f"修 {len_fix} 个 musicLength")
     changes.append(("M1 Musics",
                     f"{'、'.join(desc)}；RZ 段 {len(want_names)} 条"
-                    f"（模式 {VICTORY_MODE}）"))
+                    ))
 
     return text, changes, ([] if text == orig else ["musics"])
 
@@ -1064,7 +1020,7 @@ def patch_jam_ubmg(repo, text):
     orig = text
     touched = 0
     for t in JAM_UBMG_TRACKS:
-        key = "rk_" + t["name"]  # 与 RZ_* 同一套 manifest 前缀，避免撞上游 key
+        key = "rk_" + t["name"]  # 与 ZBT_* 同一套 manifest 前缀，避免撞上游 key
         pat = re.compile(r'("name":"' + re.escape(t["name"]) +
                          r'","tauri":")([^"]*)(")')
         m = pat.search(text)
@@ -1096,8 +1052,7 @@ def patch_jam_ubmg(repo, text):
 def patch_manifest(repo):
     """在 docs/audio/manifest.json 里注册 RZ 音轨的 key，并清掉已废弃的。
 
-    和 patch_musics 同理：VICTORY_MODE 切换后要删掉 12 个不再使用的 key，
-    否则 manifest 里会留下指向已删文件的死键。
+    只注册缺失的 key；上游 key 一律不碰。
     """
     p = os.path.join(repo, "docs", "audio", "manifest.json")
     if not os.path.exists(p):
@@ -1109,17 +1064,6 @@ def patch_manifest(repo):
     wanted = ALL_TRACKS + JAM_UBMG_TRACKS
     want_keys = {manifest_key(t) for t in wanted}
     absent = [t for t in wanted if manifest_key(t) not in text]
-
-    # 清掉不再需要的 rk_ key（只动 rk_ 前缀，绝不碰上游 key）
-    drop_names = [t["name"] for t in VICTORY_WORLD_TRACKS
-                  if t not in ALL_TRACKS]
-    removed = []
-    for n in drop_names:
-        k = "rk_" + n
-        pat = re.compile(r',?\n  "' + re.escape(k) + r'"\s*:\s*"[^"]*"')
-        if pat.search(text):
-            text = pat.sub("", text, count=1)
-            removed.append(k)
 
     if absent:
         m = re.search(r'\n\}\s*$', text)
@@ -1170,22 +1114,6 @@ def migrate_audio(repo, dry=False):
 # --------------------------------------------------------------------------
 # import json（0.16 起由音频目录直接提供，不再需要 Cocos AudioClip 描述）
 # --------------------------------------------------------------------------
-def check_import_jsons(repo):
-    """0.16.0 用 game-audio.js + <audio> 播，不再走 Cocos AudioClip。
-
-    所以 import/<uuid>.json 里的 RZ 条目**不再是必需的**。这里只报告残留，
-    不做任何删除 —— 留着也不影响运行。
-    """
-    stale = []
-    imp = os.path.join(repo, "docs", "assets", "resources", "import", "b7")
-    if os.path.isdir(imp):
-        for f in sorted(os.listdir(imp)):
-            if f.startswith("b70000"):
-                stale.append(f)
-    return stale
-
-
-# --------------------------------------------------------------------------
 # 校验
 # --------------------------------------------------------------------------
 def verify(repo):
@@ -1195,16 +1123,16 @@ def verify(repo):
     SORT, SP = find_enum_alias(js, "MusicSortEnum")
 
     if f".{SORT_MEMBER}=" not in js:
-        problems.append("index.js: 缺 MusicSortEnum.MiniGameC")
+        problems.append("index.js: 缺 MusicSortEnum.RemadeZombotany")
     if f'.{TRACKS[0]["name"]}=' not in js:
-        problems.append("index.js: 缺 RZ_* 枚举")
+        problems.append("index.js: 缺 ZBT_* 枚举")
     if f'"{TYPE_TAG}"==(null==' not in js:
         problems.append("index.js: 缺加载器三元链")
     if not re.search(r'"' + re.escape(TYPE_TAG) + r'"===', js):
         problems.append("index.js: 缺 levelController 判定")
     if not re.search(re.escape(SORT_MEMBER) + r"\)\{switch|"
                      + re.escape(SORT_MEMBER) + r"\)\{u=", js):
-        problems.append("index.js: 缺 switchMusic 的 MiniGameC 分支")
+        problems.append("index.js: 缺 switchMusic 的 RemadeZombotany 分支")
 
     # Musics
     try:
@@ -1269,13 +1197,6 @@ def verify(repo):
         if not os.path.exists(audio_abs(repo, t)):
             problems.append(f"缺音频 {audio_rel(t)}")
 
-    # 废弃条目不该还留在 Musics / manifest 里（切模式后要清干净）
-    if VICTORY_MODE == "single":
-        for t in VICTORY_WORLD_TRACKS:
-            if f'"name":"{t["name"]}"' in read_text(
-                    find_musics_json(repo)[0]):
-                problems.append(f"Musics 残留废弃条目 {t['name']}")
-
     if problems:
         print(f"❌ {len(problems)} 个问题：")
         for p in problems:
@@ -1298,24 +1219,6 @@ def main():
         print(f"❌ 不是有效的仓库根目录（找不到 docs/）：{repo}")
         return 1
     print(f"仓库：{repo}")
-
-    # 分支守卫：single 模式是 Music_RZbranch 专属，别误伤全集分支
-    try:
-        import subprocess
-        br = subprocess.run(["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"],
-                            capture_output=True, text=True, timeout=10).stdout.strip()
-    except Exception:
-        br = ""
-    if br:
-        print(f"分支：{br}")
-        if VICTORY_MODE == "single" and br not in ("Music_RZbranch", "HEAD"):
-            print()
-            print(f"⛔ 拒绝执行：VICTORY_MODE=single 只能在 Music_RZbranch 上用。")
-            print(f"   当前在 {br}，这个分支要保持「每世界一一对应」的胜利曲。")
-            print(f"   确实要拉平的话，显式设 MUSIC_VICTORY_MODE=single 并加 --force。")
-            if "--force" not in sys.argv:
-                return 1
-            print("   （--force 已给，继续）")
     print()
 
     if args.verify:
@@ -1369,20 +1272,6 @@ def main():
         for name, desc in migrate_audio(repo, dry=args.check):
             print(f"   {name:28s} {desc}")
         print()
-
-        # 清掉模式切换后不再使用的音频目录
-        if VICTORY_MODE == "single" and not args.check:
-            gone = 0
-            for t in VICTORY_WORLD_TRACKS:
-                d = os.path.join(repo, "docs", "audio", "Music", "inGame",
-                                 t["name"])
-                if os.path.isdir(d):
-                    shutil.rmtree(d)
-                    gone += 1
-            if gone:
-                print(f"── 清理 ──")
-                print(f"   删除 {gone} 个废弃音频目录（single 模式）")
-                print()
 
     except Fail as ex:
         print(f"❌ {ex}")

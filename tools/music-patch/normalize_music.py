@@ -7,7 +7,7 @@ normalize_music.py —— 把 RZ 音轨的**响度和峰值**对齐到同一把�
 ----------------------------------------
 先把"不统一"这件事查清楚，结论和直觉相反：
 
-* 13 条 RZ 音轨里，**只有 3 条是换过的**（RZ_Egypt / RZ_Pirate / RZ_Beach）；
+* 13 条 RZ 音轨里，**只有 3 条是换过的**（ZBT_Egypt / ZBT_Pirate / ZBT_Beach）；
 * 其余 **10 条与官方 UB_* 原曲逐字节相同**（PCM md5 一一对上），
   它们本来就不是"没统一"，而是**原样保留了官方母带的响度**；
 * 官方那套 UB_* 本身跨曲就差得很开（约 -10.5 ~ -17.7 LUFS），
@@ -35,8 +35,8 @@ normalize_music.py —— 把 RZ 音轨的**响度和峰值**对齐到同一把�
 用法
 ----
     python normalize_music.py --dry-run              # 只看计划，不动文件（默认）
-    python normalize_music.py --apply --tracks RZ_Egypt,RZ_Pirate,RZ_Beach
-    python normalize_music.py --apply --tracks RZ_Dark --method gain-limit
+    python normalize_music.py --apply --tracks ZBT_Egypt,ZBT_Pirate,ZBT_Beach
+    python normalize_music.py --apply --tracks ZBT_Dark --method gain-limit
     python normalize_music.py --restore latest        # 从最近备份整批回滚
 
 退出码：0 成功 / 1 有失败 / 2 环境缺 ffmpeg
@@ -91,7 +91,7 @@ def track_path(repo, t):
 
 
 # 2026-10-24 之后不再用 musicLength 判断来源 —— 那批补丁音频沿用了官方循环点，
-# 但曲子是换过的。现在 inGame/RZ_* 里全是我们放进去的，一律视为自制轨。
+# 但曲子是换过的。现在 inGame/ZBT_* 里全是我们放进去的，一律视为自制轨。
 NATIVE_LEN = 3
 DEFAULT_LEN = 181
 

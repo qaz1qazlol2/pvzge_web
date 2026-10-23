@@ -28,7 +28,7 @@ audio_report.py —— 体检 13 条 RZ 音轨：来源、编码规格、响度�
 ----
     python audio_report.py                     # 全量报告
     python audio_report.py --loudness-only     # 跳过格式探测，只测响度
-    python audio_report.py --track RZ_Egypt    # 只看一条
+    python audio_report.py --track ZBT_Egypt    # 只看一条
     python audio_report.py --json out.json     # 顺便导出机器可读结果
     python audio_report.py --target -14.5      # 指定参考 LUFS（默认 -14.5）
     python audio_report.py --include-official   # 官方原声也纳入统一判定
@@ -55,8 +55,8 @@ DUR_TOLERANCE = 0.15     # 声明的 duration 和实测差超过这么多秒就�
 
 # 用 musicLength 判断来源在 2026-10-24 之后**不可靠了**：
 # 那一批补丁音频用的就是官方的循环点（181 / Modern 193），只是曲子换了。
-# 现在改成看音频文件本身：仓库里的 inGame/RZ_* 全都是我们放进去的，
-# 而 RZ_Victory 那 12 条初始是复制品，所以只有它们的时长还能当"官方原声"参考。
+# 现在改成看音频文件本身：仓库里的 inGame/ZBT_* 全都是我们放进去的，
+# 而 ZBT_Victory 那 12 条初始是复制品，所以只有它们的时长还能当"官方原声"参考。
 NATIVE_LEN = 3
 DEFAULT_LEN = 181
 
@@ -82,7 +82,7 @@ def provenance(t):
     """这条是"我们放进去的自制轨"还是"官方原声的拷贝"？
 
     判据改成看 audio 目录里有没有这个文件：
-      - inGame/RZ_* 全部是我们自己放的 ⇒ 自制
+      - inGame/ZBT_* 全部是我们自己放的 ⇒ 自制
       - 其余（理论上不会有）⇒ 官方
     不再用 musicLength 反推 —— 换过曲子但沿用官方循环点时会被误判。
     """
@@ -95,7 +95,11 @@ def collect(repo, only=None, loudness_only=False):
         if only and t["name"] != only:
             continue
         p = track_path(repo, t)
-        row = {"name": t["name"], "world": t["world"], "uuid": t.get("src_uuid") or t.get("uuid"),
+        # CYS 前奏条目没有 world 字段（用的是 cys_world / fam），
+        # 直接 t["world"] 会 KeyError，这里用 get 兜一下。
+        row = {"name": t["name"],
+               "world": t.get("world") or t.get("cys_world") or "-",
+               "uuid": t.get("src_uuid") or t.get("uuid"),
                "path": p, "exists": os.path.exists(p),
                "prov": provenance(t),
                "declared_dur": t["duration"], "declared_len": t["music_len"]}
@@ -128,7 +132,7 @@ def spec_off(r):
 def main():
     ap = argparse.ArgumentParser(description="RZ 音轨体检：来源 / 规格 / 响度 / 时长")
     ap.add_argument("--repo", default=os.path.dirname(os.path.dirname(_HERE)))
-    ap.add_argument("--track", help="只测一条（音轨名，如 RZ_Egypt）")
+    ap.add_argument("--track", help="只测一条（音轨名，如 ZBT_Egypt）")
     ap.add_argument("--loudness-only", action="store_true")
     ap.add_argument("--json", dest="json_out", help="导出 JSON 到指定路径")
     ap.add_argument("--target", type=float, default=_audio.TARGET_LUFS,
