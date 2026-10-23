@@ -61,6 +61,24 @@ import _console_utf8  # noqa: E402,F401
 TYPE_TAG = "MiniGame_C"      # 对外 MusicType 字符串（游戏里叫 RemadeZombotany）
 SORT_MEMBER = "MiniGameC"    # MusicSortEnum 的成员名
 
+# --------------------------------------------------------------------------
+# 胜利曲模式：single / per-world
+# --------------------------------------------------------------------------
+# 由环境变量 MUSIC_VICTORY_MODE 控制，默认 single。
+#
+#   single      只留 RZ_Victory 一条通用曲，12 条世界专属全部不要。
+#               下标 273..284 空出来，后面的 Jam/CYS 曲目整体前移 12。
+#               这是「合集/精简」分支的做法，Music_RZbranch 用这个。
+#
+#   per-world   每个世界各有专属胜利曲（RZ_AE_Victory …）。
+#               这是全集分支的做法，Music_FullCustom 以后要一一对应时用。
+#
+# ⚠️ 两种模式的**下标布局不同**，切换模式必须整体重跑（Musics 也要跟着重排），
+#    不能只跑一半。apply_music 的增量逻辑会检测到这种不一致并直接报错。
+VICTORY_MODE = os.environ.get("MUSIC_VICTORY_MODE", "single").strip().lower()
+if VICTORY_MODE not in ("single", "per-world"):
+    raise SystemExit(f"MUSIC_VICTORY_MODE 只能是 single / per-world，收到：{VICTORY_MODE}")
+
 # 音频根目录（相对 docs/audio/）。0.16.0 起音频从 native/ 搬到这里。
 # 注意别写成 "audio/Music/..."：audio_abs() 已经拼了 docs/audio/ 前缀。
 AUDIO_ROOT = os.path.join("Music", "inGame")
@@ -92,7 +110,10 @@ TRACKS = [
 
 # 每个世界一条的结算曲。命名用口述简称（冰窟 → RZ_IC_Victory）。
 # RZ_Victory 保留作 switch 的 default 兜底。
-VICTORY_TRACKS = [
+#
+# ⚠️ 只有 VICTORY_MODE == "per-world" 时才启用。
+#    single 模式下这 12 条全部不注册，省掉 12 个下标。
+VICTORY_WORLD_TRACKS = [
     dict(name="RZ_AE_Victory",  world="Egypt",    world_enum="Egypt",    src_uuid="b700000d", music_len=3, duration=6.024),
     dict(name="RZ_PI_Victory",  world="Pirate",   world_enum="Pirate",   src_uuid="b700000e", music_len=3, duration=6.024),
     dict(name="RZ_COW_Victory", world="Cowboy",   world_enum="Cowboy",   src_uuid="b700000f", music_len=3, duration=6.024),
@@ -106,6 +127,12 @@ VICTORY_TRACKS = [
     dict(name="RZ_JM_Victory",  world="Dino",     world_enum="Dino",     src_uuid="b7000017", music_len=3, duration=6.024),
     dict(name="RZ_MD_Victory",  world="Modern",   world_enum="Modern",   src_uuid="b7000018", music_len=3, duration=6.024),
 ]
+
+VICTORY_TRACKS = (VICTORY_WORLD_TRACKS if VICTORY_MODE == "per-world" else [])
+
+# 声明的音轨总数（由模式决定），增量补丁用它判断布局是否一致
+def expected_layout():
+    return [t["name"] for t in ALL_TRACKS]
 
 FALLBACK_VICTORY = "RZ_Victory"
 
@@ -282,28 +309,64 @@ def patch_index_js(js):
         js = js[:tail] + ins + js[tail:]
         changes.append(("S1 MusicSortEnum", f"新增 {SORT_MEMBER}={base}"))
 
-    # ---- S2: MusicEnum += RZ_*，MusicAmount 顺延 ----
-    # 支持增量：已经存在的成员不动，只把新增的（如后期的 Jam 曲）按 ALL_TRACKS
-    # 的顺序追加到 MusicAmount 之前，并同步把 MusicAmount 往后推。
+    # ---- S2: MusicEnum 重排 RZ 段 ----
+    # 不再「只追加」—— 因为 VICTORY_MODE 会在 single / per-world 之间切换，
+    # 需要**删条目**（12 条世界专属胜利曲），删完后面的下标必须整体前移，
+    # 否则「枚举值 == Musics 下标」这条铁律就被破坏，bgms[i] 会取到别人的曲子。
+    #
+    # 做法：整段重建。以第一條 RZ 成员的原始值为基准，按 ALL_TRACKS 的顺序
+    # 连续编号。这样加、删、换序都能一次到位，且天然幂等。
     m_am = re.search(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
                      r"\.MusicAmount=(\d+)\]=\"MusicAmount\"", js)
     if not m_am:
         raise Fail("S2 找不到 MusicAmount 哨兵")
-    amount = int(m_am.group(1))
-    absent = [t for t in ALL_TRACKS
-              if f'.{t["name"]}=' not in js]
-    if not absent:
-        changes.append(("S2 MusicEnum", "已存在，跳过"))
-    else:
-        items = ",".join(f'{EP}[{EP}.{t["name"]}={amount + i}]="{t["name"]}"'
-                         for i, t in enumerate(absent))
-        new = (f',{items},{EP}[{EP}.MusicAmount={amount + len(absent)}]'
+
+    pat_first = re.compile(r"(?:," + re.escape(EP) + r"\[" + re.escape(EP) +
+                           r"\.(RZ_\w+)=(\d+)\]=\"RZ_\w+\")")
+    m_first = pat_first.search(js)
+    if not m_first:
+        # 一条都没有：整段新插到 MusicAmount 前面
+        base = int(m_am.group(1))
+        items = ",".join(f'{EP}[{EP}.{t["name"]}={base + i}]="{t["name"]}"'
+                         for i, t in enumerate(ALL_TRACKS))
+        new = (f',{items},{EP}[{EP}.MusicAmount={base + len(ALL_TRACKS)}]'
                f'="MusicAmount"')
         js = js[:m_am.start()] + new + js[m_am.end():]
         changes.append(("S2 MusicEnum",
-                        f"新增 {len(absent)} 条（{amount}.."
-                        f"{amount + len(absent) - 1}），"
-                        f"MusicAmount {amount}→{amount + len(absent)}"))
+                        f"新建 {len(ALL_TRACKS)} 条，"
+                        f"MusicAmount {base}→{base + len(ALL_TRACKS)}"))
+    else:
+        base = int(m_first.group(2))
+        # 现状成员（顺序 + 下标）
+        cur = re.findall(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
+                         r"\.(RZ_\w+)=(\d+)\]=\"(RZ_\w+)\"", js)
+        cur_names = [n for n, _, _ in cur]
+        want_names = [t["name"] for t in ALL_TRACKS]
+        dropped = [n for n in cur_names if n not in want_names]
+        added = [n for n in want_names if n not in cur_names]
+        renum = [n for i, n in enumerate(want_names)
+                 if n in cur_names and int(dict(
+                     (a, b) for a, b, _ in cur).get(n, -1)) != base + i]
+
+        if not dropped and not added and not renum:
+            changes.append(("S2 MusicEnum", "布局一致，跳过"))
+        else:
+            items = ",".join(f'{EP}[{EP}.{t["name"]}={base + i}]="{t["name"]}"'
+                             for i, t in enumerate(ALL_TRACKS))
+            new = (f",{items},{EP}[{EP}.MusicAmount={base + len(ALL_TRACKS)}]"
+                   f'="MusicAmount"')
+            js = js[:m_first.start()] + new + js[m_am.end():]
+            desc = []
+            if dropped:
+                desc.append(f"删 {len(dropped)} 条")
+            if added:
+                desc.append(f"加 {len(added)} 条")
+            if renum:
+                desc.append(f"前移 {len(renum)} 条")
+            changes.append(("S2 MusicEnum",
+                            f"{'、'.join(desc)}；共 {len(ALL_TRACKS)} 条，"
+                            f"MusicAmount={base + len(ALL_TRACKS)}"
+                            f"（模式 {VICTORY_MODE}）"))
 
     # ---- S3: 沙盒强制类型列表 ----
     needle = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss")'
@@ -425,30 +488,62 @@ def patch_index_js(js):
         desc += [f"{a}→{b}(别名)" for a, b in alias_cases]
         changes.append(("S7b Jam 世界 case", "补充 " + ", ".join(desc)))
 
-    # ---- S8: Victory 也按世界选曲 ----
-    # 插在 UltimateBattle 那个 Victory 分支之后（它已 `break;`，后面是 case 20 标签），
-    # 同样是独立语句块，不碰 case 编号。
-    if re.search(r"currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
-                 + r"&&|currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
-                 + r"\)\{switch", js):
-        changes.append(("S8 Victory 按世界选曲", "已存在，跳过"))
+    # ---- S8: ZBT 的 Victory 选曲 ----
+    # 按 VICTORY_MODE 决定形态：
+    #   per-world  按世界分派（switch(e)），12 个 case + default 兜底
+    #   single     单一通用曲（只有 u=RZ_Victory）
+    #
+    # 两种形态的完整块都要能认出来，否则会重复插入：
+    #   per-world  if(a==v.Victory&&...){switch(e){...default:u=A.RZ_Victory;}g=!1,s=1,t.next=270;break}
+    #   single     if(a==v.Victory&&...){u=A.RZ_Victory,g=!1,s=1,t.next=270;break}
+    #
+    # ⚠️ switch 块内部没有嵌套的 }，所以 [^}]* 能安全吃到 switch 的收尾 }。
+    #    但**后面还有 g=!1,s=1,t.next=270;break**，不能只匹配到那里就断。
+    _head = (r"if\(a==" + re.escape(SORT) + r"\.Victory&&this\.currentMusicSort=="
+             + re.escape(SORT) + r"\." + SORT_MEMBER + r"\)\{")
+    pat_perworld = re.compile(
+        _head + r"switch\(" + re.escape(world_var) + r"\)\{[^}]*\}"
+        r"g=!1,s=1,t\.next=270;break\}")
+    pat_single = re.compile(
+        _head + r"u=[\w$]+\.[\w$]+,g=!1,s=1,t\.next=270;break\}")
+
+    if VICTORY_MODE == "per-world":
+        vcases = "".join(
+            f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
+            for t in VICTORY_TRACKS if t["world_enum"])
+        target = (f'if(a=={SORT}.Victory&&this.currentMusicSort=='
+                  f'{SORT}.{SORT_MEMBER}){{switch({world_var}){{'
+                  f'{vcases}default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,'
+                  f't.next=270;break}}')
+        label = f"按世界分派（{len(VICTORY_TRACKS)} 条）"
+        m_ex = pat_perworld.search(js)
+        m_other = pat_single.search(js)
+    else:
+        target = (f'if(a=={SORT}.Victory&&this.currentMusicSort=='
+                  f'{SORT}.{SORT_MEMBER}){{u={EN}.{FALLBACK_VICTORY},'
+                  f'g=!1,s=1,t.next=270;break}}')
+        label = f"单一通用曲（{FALLBACK_VICTORY}）"
+        m_ex = pat_single.search(js)
+        m_other = pat_perworld.search(js)
+
+    if m_ex:
+        if m_ex.group(0) == target:
+            changes.append(("S8 Victory 选曲", f"{label}，已就位"))
+        else:
+            js = js[:m_ex.start()] + target + js[m_ex.end():]
+            changes.append(("S8 Victory 选曲", f"改为{label}"))
+    elif m_other:
+        # 反形态存在（single ⇄ per-world），整块换掉
+        js = js[:m_other.start()] + target + js[m_other.end():]
+        changes.append(("S8 Victory 选曲", f"切换形态为{label}"))
     else:
         anchor = f"u={EN}.UB_Victory,g=!1,s=1,t.next=270;break;"
         pos = js.find(anchor)
         if pos < 0:
-            raise Fail("S8 找不到 UltimateBattle 的 Victory 分支")
-        vcases = "".join(
-            f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
-            for t in VICTORY_TRACKS if t["world_enum"])
-        block = (f'if({sort_var}=={SORT}.Victory&&this.currentMusicSort=='
-                 f'{SORT}.{SORT_MEMBER}){{switch({world_var}){{'
-                 f'{vcases}default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,'
-                 f't.next=270;break}}')
+            raise Fail("S8 找不到 UltimateBattle 的 Victory 分支，也没有现成的 ZBT 块")
         cut = pos + len(anchor)
-        js = js[:cut] + block + js[cut:]
-        changes.append(("S8 Victory 按世界选曲",
-                        f"插入 {len(VICTORY_TRACKS)} 个世界分支，"
-                        f"default 保留 {FALLBACK_VICTORY}"))
+        js = js[:cut] + target + js[cut:]
+        changes.append(("S8 Victory 选曲", f"插入{label}"))
 
     # ---- S9: 选卡前奏（CYS）----
     # 0.16.0 里 CYS_Start 只服务「普通关卡」：levelController 给无 MusicType 的关卡
@@ -791,59 +886,79 @@ def find_musics_json(repo):
 
 
 def patch_musics(repo, text):
-    """追加 25 条 RZ 条目；已存在则只同步 musicLength。"""
+    """把 Musics 里的 RZ 段整体重写成 ALL_TRACKS。
+
+    为什么不是「只追加」：VICTORY_MODE 会在 single / per-world 之间切换，
+    需要**删掉** 12 条世界专属胜利曲。删了之后 RZ 段必须整体前移，
+    否则「枚举值 == Musics 下标」被破坏，bgms[i] 就会取到别人的曲子。
+
+    整段重写还有个好处：天然幂等，加/删/换序都一次到位。
+    RZ 段在 Musics 里是**连续**的（从 RZ_Egypt 开始到最后一个 RZ_* 结束），
+    所以可以安全地整块替换。
+    """
     changes = []
     orig = text
-    anchor = '{"name":"Dialogue_Dave_LP"'   # Musics 的最后一条
-    m_anchor = text.find(anchor)
-    if m_anchor < 0:
-        raise Fail("找不到 Musics 的最后一条（Dialogue_Dave_LP）")
 
     def build(t):
         return ('{"name":"%s","tauri":"%s","musicLength":%s}'
                 % (t["name"], manifest_key(t), _num(t["music_len"])))
 
-    if f'"{TRACKS[0]["name"]}"' in text:
-        changes.append(("M1 Musics", "已存在，同步 musicLength"))
-        # 已有条目：同步 musicLength；缺失的（如后来新增的 Jam 曲）追加到数组末尾。
-        # 追加位置必须是 RZ 组之后（枚举值 = 数组下标，见 verify），
-        # 而 ALL_TRACKS 的顺序保证了新曲在最后，所以插在最后一个 RZ 条目之后即可。
-        absent = [t for t in ALL_TRACKS
-                  if f'"name":"{t["name"]}"' not in text]
-        for t in ALL_TRACKS:
-            pat = re.compile(r'("name":"' + re.escape(t["name"]) +
-                             r'","tauri":"[^"]*","musicLength":)([0-9.]+)')
-            mm = pat.search(text)
-            if not mm:
-                continue
-            new = _num(t["music_len"])
-            if mm.group(2) != new:
-                text = text[:mm.start(2)] + new + text[mm.end(2):]
-                changes.append((f"  {t['name']}",
-                                f"musicLength {mm.group(2)} → {new}"))
-        if absent:
-            # 找最后一个已存在的 RZ 条目，插在它后面
-            last = None
-            for t in ALL_TRACKS:
-                pat = re.compile(r'\{"name":"' + re.escape(t["name"]) +
-                                 r'","tauri":"[^"]*","musicLength":[0-9.]+\}')
-                for mm in pat.finditer(text):
-                    if last is None or mm.end() > last:
-                        last = mm.end()
-            if last is None:
-                raise Fail("M1 找不到任何已有 RZ 条目作为插入锚点")
-            items = ",".join(build(t) for t in absent)
-            text = text[:last] + "," + items + text[last:]
-            changes.append(("M1 Musics 追加",
-                            "新增 " + ", ".join(t["name"] for t in absent)))
-    else:
-        items = ",".join(build(t) for t in ALL_TRACKS)
-        # 插在最后一条之后
+    # 定位 RZ 段：从第一条 RZ 条目到最后一个连续的 RZ 条目
+    pat_entry = re.compile(r'\{"name":"(RZ_\w+)","tauri":"[^"]*",'
+                           r'"musicLength":[0-9.]+\}')
+    spans = [(m.start(), m.end()) for m in pat_entry.finditer(text)]
+    if not spans:
+        # Musics 里还没有任何 RZ 条目：整段追加到最后一条之后
+        anchor = '{"name":"Dialogue_Dave_LP"'
+        m_anchor = text.find(anchor)
+        if m_anchor < 0:
+            raise Fail("找不到 Musics 的最后一条（Dialogue_Dave_LP）")
         end = text.find("}", m_anchor)
         if end < 0:
             raise Fail("Musics 锚点结构异常")
+        items = ",".join(build(t) for t in ALL_TRACKS)
         text = text[:end + 1] + "," + items + text[end + 1:]
-        changes.append(("M1 Musics", f"追加 {len(ALL_TRACKS)} 条"))
+        changes.append(("M1 Musics", f"新建 {len(ALL_TRACKS)} 条"))
+        return text, changes, ([] if text == orig else ["musics"])
+
+    # RZ 段应当是连续的，取首尾
+    seg_start, seg_end = spans[0][0], spans[-1][1]
+    cur_names = [m.group(1) for m in
+                 pat_entry.finditer(text[seg_start:seg_end])]
+    want_names = [t["name"] for t in ALL_TRACKS]
+
+    dropped = [n for n in cur_names if n not in want_names]
+    added = [n for n in want_names if n not in cur_names]
+    order_ok = [n for n in cur_names if n in want_names] == \
+               [n for n in want_names if n in cur_names]
+
+    # musicLength 也要同步（单独统计，避免把 length 变更也算成结构变更）
+    len_fix = 0
+    for t in ALL_TRACKS:
+        mm = re.search(r'("name":"' + re.escape(t["name"]) +
+                       r'","tauri":"[^"]*","musicLength":)([0-9.]+)', text)
+        if mm and mm.group(2) != _num(t["music_len"]):
+            len_fix += 1
+
+    if not dropped and not added and order_ok and not len_fix:
+        changes.append(("M1 Musics", "布局一致，跳过"))
+        return text, changes, ([] if text == orig else ["musics"])
+
+    items = ",".join(build(t) for t in ALL_TRACKS)
+    text = text[:seg_start] + items + text[seg_end:]
+
+    desc = []
+    if dropped:
+        desc.append(f"删 {len(dropped)} 条")
+    if added:
+        desc.append(f"加 {len(added)} 条")
+    if not order_ok:
+        desc.append("重排")
+    if len_fix:
+        desc.append(f"修 {len_fix} 个 musicLength")
+    changes.append(("M1 Musics",
+                    f"{'、'.join(desc)}；RZ 段 {len(want_names)} 条"
+                    f"（模式 {VICTORY_MODE}）"))
 
     return text, changes, ([] if text == orig else ["musics"])
 
@@ -892,7 +1007,11 @@ def patch_jam_ubmg(repo, text):
 # manifest.json
 # --------------------------------------------------------------------------
 def patch_manifest(repo):
-    """在 docs/audio/manifest.json 里注册 RZ 音轨的 key（支持增量）。"""
+    """在 docs/audio/manifest.json 里注册 RZ 音轨的 key，并清掉已废弃的。
+
+    和 patch_musics 同理：VICTORY_MODE 切换后要删掉 12 个不再使用的 key，
+    否则 manifest 里会留下指向已删文件的死键。
+    """
     p = os.path.join(repo, "docs", "audio", "manifest.json")
     if not os.path.exists(p):
         raise Fail(f"找不到 {p}")
@@ -901,19 +1020,38 @@ def patch_manifest(repo):
     orig = text
     # Jam 的 UB/MG 走同一套 rk_ 前缀，也要注册
     wanted = ALL_TRACKS + JAM_UBMG_TRACKS
+    want_keys = {manifest_key(t) for t in wanted}
     absent = [t for t in wanted if manifest_key(t) not in text]
-    if not absent:
+
+    # 清掉不再需要的 rk_ key（只动 rk_ 前缀，绝不碰上游 key）
+    drop_names = [t["name"] for t in VICTORY_WORLD_TRACKS
+                  if t not in ALL_TRACKS]
+    removed = []
+    for n in drop_names:
+        k = "rk_" + n
+        pat = re.compile(r',?\n  "' + re.escape(k) + r'"\s*:\s*"[^"]*"')
+        if pat.search(text):
+            text = pat.sub("", text, count=1)
+            removed.append(k)
+
+    if absent:
+        m = re.search(r'\n\}\s*$', text)
+        if not m:
+            raise Fail("manifest.json 结构异常（找不到结尾 }）")
+        items = "".join(',\n  "%s": "%s"' % (manifest_key(t), audio_rel(t))
+                        for t in absent)
+        text = text[:m.start()] + items + text[m.start():]
+
+    if absent or removed:
+        desc = []
+        if absent:
+            desc.append(f"注册 {len(absent)} 个 key")
+        if removed:
+            desc.append(f"删除 {len(removed)} 个废弃 key")
+        changes.append(("A1 manifest", "，".join(desc)))
+    else:
         changes.append(("A1 manifest", "已存在，跳过"))
-        return text, changes, ([] if text == orig else [])
-    # 插在最后一个键之后（即结尾 } 之前）
-    m = re.search(r'\n\}\s*$', text)
-    if not m:
-        raise Fail("manifest.json 结构异常（找不到结尾 }）")
-    items = "".join(',\n  "%s": "%s"' % (manifest_key(t), audio_rel(t))
-                    for t in absent)
-    text = text[:m.start()] + items + text[m.start():]
-    changes.append(("A1 manifest", f"注册 {len(absent)} 个 key"))
-    return text, changes, ["manifest.json"]
+    return text, changes, ([] if text == orig else ["manifest.json"])
 
 
 # --------------------------------------------------------------------------
@@ -1040,9 +1178,16 @@ def verify(repo):
         problems.append("缺 audio/manifest.json")
 
     # 音频文件
-    for t in ALL_TRACKS:
+    for t in ALL_TRACKS + JAM_UBMG_TRACKS:
         if not os.path.exists(audio_abs(repo, t)):
             problems.append(f"缺音频 {audio_rel(t)}")
+
+    # 废弃条目不该还留在 Musics / manifest 里（切模式后要清干净）
+    if VICTORY_MODE == "single":
+        for t in VICTORY_WORLD_TRACKS:
+            if f'"name":"{t["name"]}"' in read_text(
+                    find_musics_json(repo)[0]):
+                problems.append(f"Musics 残留废弃条目 {t['name']}")
 
     if problems:
         print(f"❌ {len(problems)} 个问题：")
@@ -1066,6 +1211,24 @@ def main():
         print(f"❌ 不是有效的仓库根目录（找不到 docs/）：{repo}")
         return 1
     print(f"仓库：{repo}")
+
+    # 分支守卫：single 模式是 Music_RZbranch 专属，别误伤全集分支
+    try:
+        import subprocess
+        br = subprocess.run(["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        br = ""
+    if br:
+        print(f"分支：{br}")
+        if VICTORY_MODE == "single" and br not in ("Music_RZbranch", "HEAD"):
+            print()
+            print(f"⛔ 拒绝执行：VICTORY_MODE=single 只能在 Music_RZbranch 上用。")
+            print(f"   当前在 {br}，这个分支要保持「每世界一一对应」的胜利曲。")
+            print(f"   确实要拉平的话，显式设 MUSIC_VICTORY_MODE=single 并加 --force。")
+            if "--force" not in sys.argv:
+                return 1
+            print("   （--force 已给，继续）")
     print()
 
     if args.verify:
@@ -1119,6 +1282,20 @@ def main():
         for name, desc in migrate_audio(repo, dry=args.check):
             print(f"   {name:28s} {desc}")
         print()
+
+        # 清掉模式切换后不再使用的音频目录
+        if VICTORY_MODE == "single" and not args.check:
+            gone = 0
+            for t in VICTORY_WORLD_TRACKS:
+                d = os.path.join(repo, "docs", "audio", "Music", "inGame",
+                                 t["name"])
+                if os.path.isdir(d):
+                    shutil.rmtree(d)
+                    gone += 1
+            if gone:
+                print(f"── 清理 ──")
+                print(f"   删除 {gone} 个废弃音频目录（single 模式）")
+                print()
 
     except Fail as ex:
         print(f"❌ {ex}")
