@@ -105,7 +105,10 @@ TRACKS = [
     dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
     dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.941),
     dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=193,   duration=196.539),
-    dict(name="RZ_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=3,     duration=6.024),
+    # ⚠️ RZ_Victory 用的是补丁里的 ZBT_Victory.mp3（4.760s / 192k），
+    # 不是早期那个 96k / 5.993s 的占位文件。
+    # musicLength 按补丁规则 = 实测时长 - 0.05。
+    dict(name="RZ_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=4.71,  duration=4.760),
 ]
 
 # 每个世界一条的结算曲。命名用口述简称（冰窟 → RZ_IC_Victory）。
@@ -488,62 +491,146 @@ def patch_index_js(js):
         desc += [f"{a}→{b}(别名)" for a, b in alias_cases]
         changes.append(("S7b Jam 世界 case", "补充 " + ", ".join(desc)))
 
-    # ---- S8: ZBT 的 Victory 选曲 ----
-    # 按 VICTORY_MODE 决定形态：
-    #   per-world  按世界分派（switch(e)），12 个 case + default 兜底
-    #   single     单一通用曲（只有 u=RZ_Victory）
+    # ---- S8: Victory 判定 ----
+    # 目标：UB / MG / ZBT 三种 MiniGame 关卡打出各自的结算曲，
+    # 而不是落回大世界的默认结算曲（ArenaStage 的 Music="Dark" → VIC_Dark）。
     #
-    # 两种形态的完整块都要能认出来，否则会重复插入：
-    #   per-world  if(a==v.Victory&&...){switch(e){...default:u=A.RZ_Victory;}g=!1,s=1,t.next=270;break}
-    #   single     if(a==v.Victory&&...){u=A.RZ_Victory,g=!1,s=1,t.next=270;break}
+    # 走过三条弯路，记录清楚，别再重犯
+    # ------------------------------------
+    # ① 原版 0.16.0（master 分支）里 **ZBT 的 Victory 块是死代码**：
+    #       ...u=A.UB_Victory,g=!1,s=1,t.next=270;break;
+    #       if(a==v.Victory&&this.currentMusicSort==v.MiniGameC){switch(e){...}}
+    #    它被插在 UB 的 `break;` 之后，永远不执行。
+    #    所以「原版怎么弄的」在这件事上没有可参考的先例 —— 它压根没生效过。
     #
-    # ⚠️ switch 块内部没有嵌套的 }，所以 [^}]* 能安全吃到 switch 的收尾 }。
-    #    但**后面还有 g=!1,s=1,t.next=270;break**，不能只匹配到那里就断。
-    _head = (r"if\(a==" + re.escape(SORT) + r"\.Victory&&this\.currentMusicSort=="
-             + re.escape(SORT) + r"\." + SORT_MEMBER + r"\)\{")
-    pat_perworld = re.compile(
-        _head + r"switch\(" + re.escape(world_var) + r"\)\{[^}]*\}"
-        r"g=!1,s=1,t\.next=270;break\}")
-    pat_single = re.compile(
-        _head + r"u=[\w$]+\.[\w$]+,g=!1,s=1,t\.next=270;break\}")
+    # ② 用 currentMusicSort 判定不可靠：它是**播放态**，会被
+    #       hugeWaveMusic() → Stage2/3/4_Start
+    #       switchMusic 收尾 → currentMusicSort = a
+    #       levelController 对话流程 → NaN
+    #    改写，结算时未必还是 UltimateBattle / DemonstrateMinigame。
+    #
+    # ③ 用 window.__levelMt 全局变量也不行：写成 onLoad / case 11 / case 14-17
+    #    都会因为「关卡加载路径不一致」（沙盒分支绕过路由、LOD 走另一套、
+    #    自定义关卡可能不触发 module_SetLevelDefinition）而残留上一关的值。
+    #    现象就是：先打 UB 再打 ZBT → ZBT 结算放的是 UB 的曲子。
+    #
+    # 最终方案：**在结算那一刻直接读关卡自己声明的 MusicType**。
+    # ------------------------------------
+    # 结算点在 levelController 的 win 流程里，那里 `this` 就是关卡控制器，
+    # `this.levelDefinition` 是本关的 LevelDefinition.objdata，一定有 MusicType。
+    # 不再引入任何全局状态，也就没有残留问题。
+    #
+    # 三家统一判定（按用户要求，ZBT 与未来的 LB 都照 UB/MG 的格式）：
+    #   只把条件从 currentMusicSort 换成 「本关 MusicType」，
+    #   形态仍是原来的层叠 `if(a!=...){next=N;break}`，不额外插入块。
 
-    if VICTORY_MODE == "per-world":
-        vcases = "".join(
-            f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
-            for t in VICTORY_TRACKS if t["world_enum"])
-        target = (f'if(a=={SORT}.Victory&&this.currentMusicSort=='
-                  f'{SORT}.{SORT_MEMBER}){{switch({world_var}){{'
-                  f'{vcases}default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,'
-                  f't.next=270;break}}')
-        label = f"按世界分派（{len(VICTORY_TRACKS)} 条）"
-        m_ex = pat_perworld.search(js)
-        m_other = pat_single.search(js)
+    # 1) 在结算前把本关的 MusicType 放到一个局部变量里，
+    #    随后的三条判定都读它。
+    #    插在 `if(this.gameWon=!0,J.waterall(),t)` 前面 ——
+    #    这是普通胜利分支的入口，`this` 是关卡控制器。
+    win_anchor = "this.gameWon=!0,J.waterall(),t)switch(he.soundManager().currentMusicType)"
+    if "window.__mts=" in js:
+        changes.append(("S8a 取关卡类型", "已存在，跳过"))
     else:
-        target = (f'if(a=={SORT}.Victory&&this.currentMusicSort=='
-                  f'{SORT}.{SORT_MEMBER}){{u={EN}.{FALLBACK_VICTORY},'
-                  f'g=!1,s=1,t.next=270;break}}')
-        label = f"单一通用曲（{FALLBACK_VICTORY}）"
-        m_ex = pat_single.search(js)
-        m_other = pat_perworld.search(js)
+        if win_anchor not in js:
+            raise Fail("S8a 找不到普通胜利分支")
+        js = js.replace(
+            win_anchor,
+            "(window.__mts=(this.levelDefinition||{}).MusicType),"
+            "this.gameWon=!0,J.waterall(),t)"
+            "switch(he.soundManager().currentMusicType)", 1)
+        changes.append(("S8a 取关卡类型", "结算前读本关 MusicType"))
 
-    if m_ex:
-        if m_ex.group(0) == target:
-            changes.append(("S8 Victory 选曲", f"{label}，已就位"))
-        else:
-            js = js[:m_ex.start()] + target + js[m_ex.end():]
-            changes.append(("S8 Victory 选曲", f"改为{label}"))
-    elif m_other:
-        # 反形态存在（single ⇄ per-world），整块换掉
-        js = js[:m_other.start()] + target + js[m_other.end():]
-        changes.append(("S8 Victory 选曲", f"切换形态为{label}"))
+    # 2) UB / MG / ZBT 三家判定改用本关 MusicType。
+    #    ZBT 必须在 UB 之前，且用**正向判定**（命中跳出、未命中下滑），
+    #    否则带 next 跳转会跳过 UB。
+    #
+    #    ⚠️ 注意原版 ZBT 块是死代码，这里要把它从 break 之后**搬到 UB 之前**。
+    lm = "window.__mts"
+    zbt_good = (f'if(a=={SORT}.Victory&&{lm}=="{TYPE_TAG}")'
+                f'{{u={EN}.{FALLBACK_VICTORY},g=!1,s=1,t.next=270;break}}')
+
+    # 先删掉所有历史形态的 ZBT 块（死代码 / 错误形态）
+    for bad in (
+        # 原版：插在 break 之后（死代码）
+        f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
+        f'{{switch({WORLD}x){{}}}}',
+        f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
+        f'{{switch(e){{case w.Egypt:u={EN}.RZ_AE_Victory;break;'
+        f'case w.Pirate:u={EN}.RZ_PI_Victory;break;'
+        f'case w.Cowboy:u={EN}.RZ_COW_Victory;break;'
+        f'case w.Kongfu:u={EN}.RZ_KF_Victory;break;'
+        f'case w.Future:u={EN}.RZ_FF_Victory;break;'
+        f'case w.Dark:u={EN}.RZ_DA_Victory;break;'
+        f'case w.Beach:u={EN}.RZ_BWB_Victory;break;'
+        f'case w.Ice:u={EN}.RZ_IC_Victory;break;'
+        f'case w.Lostcity:u={EN}.RZ_LC_Victory;break;'
+        f'case w.Sky:u={EN}.RZ_SK_Victory;break;'
+        f'case w.Dino:u={EN}.RZ_JM_Victory;break;'
+        f'case w.Modern:u={EN}.RZ_MD_Victory;break;'
+        f'default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,t.next=270;break}}',
+        # 中间版本：正向块但放在 break 之后
+        f'if(a=={SORT}.Victory&&this.currentMusicSort=={SORT}.{SORT_MEMBER})'
+        f'{{u={EN}.{FALLBACK_VICTORY},g=!1,s=1,t.next=270;break}}',
+        # 错误形态：带 next 跳转（会跳过 UB）
+        f'if(a!={SORT}.Victory||window.__levelMt!="{TYPE_TAG}")'
+        f'{{t.next=20;break}}u={EN}.{FALLBACK_VICTORY},g=!1,s=1,t.next=270;break;',
+        # 上一版：用 __lm 的正向块
+        f'if(a=={SORT}.Victory&&window.__lm=="{TYPE_TAG}")'
+        f'{{u={EN}.{FALLBACK_VICTORY},g=!1,s=1,t.next=270;break}}',
+        # 上一版的 resolve 前缀
+        f'{lm}=window.__levelMt;',
+        f'window.__lm=window.__levelMt;',
+    ):
+        if bad in js:
+            js = js.replace(bad, "", 1)
+
+    # 清掉各种 resolve 残留（逗号表达式那几版）
+    for pat in (
+        r'(?:\w+=window\.__levelMt,\w+==null&&this\.currentMusicSort==[\w$]+\.'
+        r'UltimateBattle&&\(\w+="MiniGame_A"\),\w+==null&&this\.currentMusicSort'
+        r'==[\w$]+\.DemonstrateMinigame&&\(\w+="MiniGame_B"\),'
+        r'\w+==null&&this\.currentMusicSort==[\w$]+\.\w+&&\(\w+="MiniGame_C"\)[;,]?)',
+        r'window\.__lm=\([^;]*\)\.__levelMt[^;]*;',
+        r'window\.__lm=\(window\.__levelMt[^;]*\)[^;]*;',
+    ):
+        js = re.sub(pat, "", js)
+
+    # 找 UB 判定并插 ZBT（若还没插过）
+    ub_pat = re.compile(
+        r'if\(a!=[\w$]+\.Victory\|\|(?:this\.currentMusicSort!='
+        r'[\w$]+\.UltimateBattle|window\.__levelMt!="MiniGame_C"'
+        r'&&window\.__levelMt!="MiniGame_A"|window\.__lm!="MiniGame_A"'
+        r'|window\.__mts!="MiniGame_A")\)')
+    m_ub = ub_pat.search(js)
+    if not m_ub:
+        raise Fail("S8 找不到 UB 的 Victory 判定")
+    if zbt_good not in js:
+        js = js[:m_ub.start()] + zbt_good + js[m_ub.start():]
+        changes.append(("S8b ZBT 判定", "正向块插在 UB 之前"))
     else:
-        anchor = f"u={EN}.UB_Victory,g=!1,s=1,t.next=270;break;"
-        pos = js.find(anchor)
-        if pos < 0:
-            raise Fail("S8 找不到 UltimateBattle 的 Victory 分支，也没有现成的 ZBT 块")
-        cut = pos + len(anchor)
-        js = js[:cut] + target + js[cut:]
-        changes.append(("S8 Victory 选曲", f"插入{label}"))
+        changes.append(("S8b ZBT 判定", "已存在，跳过"))
+
+    # UB / MG 的条件替换成本关 MusicType
+    n = 0
+    for old_re, new in (
+        (r'if\(a!=([\w$]+)\.Victory\|\|(?:this\.currentMusicSort!=\1\.UltimateBattle'
+         r'|window\.__levelMt!="MiniGame_C"&&window\.__levelMt!="MiniGame_A"'
+         r'|window\.__lm!="MiniGame_A")\)',
+         f'if(a!=v.Victory||window.__mts!="MiniGame_A")'),
+        (r'if\(a!=([\w$]+)\.Victory\|\|(?:this\.currentMusicSort!=\1\.DemonstrateMinigame'
+         r'|window\.__levelMt!="MiniGame_C"&&window\.__levelMt!="MiniGame_B"'
+         r'|window\.__lm!="MiniGame_B")\)',
+         f'if(a!=v.Victory||window.__mts!="MiniGame_B")'),
+    ):
+        m2 = re.search(old_re, js)
+        if m2:
+            js = js[:m2.start()] + new + js[m2.end():]
+            n += 1
+    if n:
+        changes.append(("S8c UB/MG 判定", f"{n} 处改用本关 MusicType"))
+    else:
+        changes.append(("S8c UB/MG 判定", "已存在，跳过"))
 
     # ---- S9: 选卡前奏（CYS）----
     # 0.16.0 里 CYS_Start 只服务「普通关卡」：levelController 给无 MusicType 的关卡
