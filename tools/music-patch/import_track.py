@@ -67,9 +67,18 @@ MIN_TRIM = 0.15
 
 
 def track_path(repo, t):
-    sub = t["uuid"][:2]
-    return os.path.join(repo, "docs", "assets", "resources", "native", sub,
-                        t["uuid"] + ".mp3")
+    """0.16.0 起音频在 docs/audio/Music/inGame/<名字>/<名字>.mp3。
+
+    旧版是 docs/assets/resources/native/<uuid前2位>/<uuid>.mp3。
+    优先用新布局；找不到再回落到旧布局（兼容尚未迁移的仓库）。
+    """
+    new = os.path.join(repo, "docs", "audio", "Music", "inGame",
+                       t["name"], t["name"] + ".mp3")
+    if os.path.exists(new):
+        return new
+    old_uuid = t.get("src_uuid") or t.get("uuid")
+    return os.path.join(repo, "docs", "assets", "resources", "native",
+                        old_uuid[:2], old_uuid + ".mp3")
 
 
 def pick_track(name):
@@ -155,7 +164,7 @@ def main():
     if args.list or not args.track:
         print(f"{'音轨':<16}{'world':<10}{'uuid':<10}{'时长':>9}{'循环点':>9}{'尾长':>8}")
         for t in apply_music.ALL_TRACKS:
-            print(f"{t['name']:<16}{t['world']:<10}{t['uuid']:<10}"
+            print(f"{t['name']:<16}{t['world']:<10}{t.get('src_uuid') or t.get('uuid'):<10}"
                   f"{t['duration']:>9.3f}{t['music_len']:>9.3f}"
                   f"{t['duration'] - t['music_len']:>8.3f}")
         print()
@@ -175,7 +184,7 @@ def main():
     dst = track_path(repo, t)
 
     # ---------- 1. 看源文件 ----------
-    print(f"音轨：{t['name']}（world={t['world']}, uuid={t['uuid']}）")
+    print(f"音轨：{t['name']}（world={t['world']}, uuid={t.get('src_uuid') or t.get('uuid')}）")
     print(f"目标：{os.path.relpath(dst, repo)}")
     print()
     print("── 源文件 ──")

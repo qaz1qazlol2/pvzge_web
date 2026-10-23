@@ -64,9 +64,18 @@ HOME_SPEC = {"br": 160000, "sr": 48000, "ch": 2}   # 房子标准（自制轨应
 
 
 def track_path(repo, t):
-    sub = t["uuid"][:2]
-    return os.path.join(repo, "docs", "assets", "resources", "native", sub,
-                        t["uuid"] + ".mp3")
+    """0.16.0 起音频在 docs/audio/Music/inGame/<名字>/<名字>.mp3。
+
+    旧版是 docs/assets/resources/native/<uuid前2位>/<uuid>.mp3。
+    优先用新布局；找不到再回落到旧布局（兼容尚未迁移的仓库）。
+    """
+    new = os.path.join(repo, "docs", "audio", "Music", "inGame",
+                       t["name"], t["name"] + ".mp3")
+    if os.path.exists(new):
+        return new
+    old_uuid = t.get("src_uuid") or t.get("uuid")
+    return os.path.join(repo, "docs", "assets", "resources", "native",
+                        old_uuid[:2], old_uuid + ".mp3")
 
 
 def provenance(t):
@@ -81,7 +90,7 @@ def collect(repo, only=None, loudness_only=False):
         if only and t["name"] != only:
             continue
         p = track_path(repo, t)
-        row = {"name": t["name"], "world": t["world"], "uuid": t["uuid"],
+        row = {"name": t["name"], "world": t["world"], "uuid": t.get("src_uuid") or t.get("uuid"),
                "path": p, "exists": os.path.exists(p),
                "prov": provenance(t),
                "declared_dur": t["duration"], "declared_len": t["music_len"]}

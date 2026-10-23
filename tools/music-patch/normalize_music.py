@@ -76,9 +76,18 @@ DEFAULT_BACKUP_ROOT = os.path.join(
 
 
 def track_path(repo, t):
-    sub = t["uuid"][:2]
-    return os.path.join(repo, "docs", "assets", "resources", "native", sub,
-                        t["uuid"] + ".mp3")
+    """0.16.0 起音频在 docs/audio/Music/inGame/<名字>/<名字>.mp3。
+
+    旧版是 docs/assets/resources/native/<uuid前2位>/<uuid>.mp3。
+    优先用新布局；找不到再回落到旧布局（兼容尚未迁移的仓库）。
+    """
+    new = os.path.join(repo, "docs", "audio", "Music", "inGame",
+                       t["name"], t["name"] + ".mp3")
+    if os.path.exists(new):
+        return new
+    old_uuid = t.get("src_uuid") or t.get("uuid")
+    return os.path.join(repo, "docs", "assets", "resources", "native",
+                        old_uuid[:2], old_uuid + ".mp3")
 
 
 # 官方初始 musicLength —— 与 rz_map_check.py / audio_report.py 同一套口径。

@@ -1,41 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-apply_music.py —— 把 MiniGame_C 音乐定制重放到游戏数据文件上。
+apply_music.py —— 把 RemadeZombotany（内部类型 MiniGame_C）的音乐定制
+重放到游戏数据文件上。适配游戏 0.16.0+。
 
-用途
+背景
 ----
-上游发布新版本后，docs/ 下的三个文件会被官方版本覆盖（它们是压缩单行文件，
-git merge 无法处理）。本脚本把音乐改动重新打到官方新文件上。
+0.16.0 把音频链路整个换了：
 
-它做三件事：
-  1. 改 docs/assets/main/index.js        —— 枚举 + 选曲/加载逻辑
-  2. 改 docs/assets/resources/config.json —— 音频 uuid + 路径注册
-  3. 改 docs/assets/resources/import/0a/0a278bb49.json —— Musics 条目
+  0.14.0                          0.16.0
+  ------------------------------------------------------------------
+  resources/native/<uuid>.mp3     audio/Music/Game/<世界>/*.mp3
+  config.json 的 uuids + paths    audio/manifest.json（key → 相对路径）
+  Musics: {name,path,world,type}  Musics: {name, tauri, musicLength}
+  import/0a/0a278bb49.json        import/0d/0d4cac202.json
+                                  （内容哈希当文件名，上游一变就得重新找）
 
-音轨共 25 条：
-  * 13 条主音轨（12 个世界各一条 + 一条共用结算曲 RZ_Victory）
-  * 12 条**每个世界独立的结算曲**（RZ_AE_Victory / RZ_PI_Victory / ... / RZ_MD_Victory）
-    —— 拆开是为了以后能逐条替换；初始音频从 RZ_Victory 复制，RZ_Victory 自己
-       保留为 switch 的 default 兜底。
+所以本脚本不再碰 config.json 的 uuids/paths，也**不按固定路径**找 Musics ——
+它会在 import/ 目录里搜索 `"Musics":[` 唯一出现的位置。
 
-另外可生成 import/*.json（Cocos 的 AudioClip 描述），并检查 mp3 是否在位。
+`tauri` 是 manifest 的 key，不是路径。播放时由 game-audio.js 查表拼 URL：
 
-特点
-----
-* 幂等：已打过补丁的文件会被识别并跳过，重复运行安全。
-* 动态：枚举值、paths 下标、case 编号都按当前文件内容实时计算，
-  上游新增音乐条目也不会错位。
-* 抗改名：terser 会重命名局部变量，脚本用正则捕获别名而非硬编码。
+    MusicEnum(数字) → bgms[i] {tauri, musicLength}
+                    → manifest[tauri] → audio/<相对路径>
+
+定制的范围
+----------
+RemadeZombotany 是**独立的音乐类型**，不复用上游的 MG_ / VIC_ / UB_ 任何一条：
+
+  * MusicSortEnum   + MiniGameC = 24
+  * MusicEnum       + 25 条 RZ_*（260..284），MusicAmount 260 → 285
+  * Musics          + 25 条 {name,tauri,musicLength}
+  * manifest.json   + 25 个 key → inGame/RZ_*/*.mp3
+  * 音频文件         audio/Music/inGame/RZ_*/<名字>.mp3（独立目录，绝不覆盖上游）
+
+为什么 victory 也要分世界：RemadeZombotany 是独立曲库，各世界的结算曲也要能
+单独换。上游自己的 VIC_* 只服务它自己的模式，不与我们共用。
 
 用法
 ----
-    python apply_music.py --repo D:/git/pvzge_web          # 应用（默认）
-    python apply_music.py --repo D:/git/pvzge_web --check   # 只看会改什么，不落盘
-    python apply_music.py --repo D:/git/pvzge_web --verify  # 只校验当前状态
-    python apply_music.py --repo D:/git/pvzge_web --gen-import   # 顺便重建 import json
+    python apply_music.py                # 应用（默认）
+    python apply_music.py --check        # 只看会改什么，不落盘
+    python apply_music.py --verify       # 只校验当前状态
+    python apply_music.py --gen-import   # 顺便补 import json / 复制缺的音频
 
-退出码：0 成功 / 1 失败 / 2 已是最新（无需改动）
+退出码：0 成功 / 1 失败
 """
 
 import argparse
@@ -49,533 +58,71 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _console_utf8  # noqa: E402,F401
 
+TYPE_TAG = "MiniGame_C"      # 对外 MusicType 字符串（游戏里叫 RemadeZombotany）
+SORT_MEMBER = "MiniGameC"    # MusicSortEnum 的成员名
+
+# 音频根目录（相对 docs/audio/）。0.16.0 起音频从 native/ 搬到这里。
+# 注意别写成 "audio/Music/..."：audio_abs() 已经拼了 docs/audio/ 前缀。
+AUDIO_ROOT = os.path.join("Music", "inGame")
+
 # --------------------------------------------------------------------------
-# 音轨清单：改这里就能增删音轨
+# 音轨清单
 # --------------------------------------------------------------------------
-# name       —— 音轨名（也是 Musics 条目的 name、import json 的 _name）
-# world      —— Musics 条目的 world 字段
-# world_enum —— index.js 里 WorldMusic 枚举的成员名（注意 Iceage 的成员叫 Ice）
-# dir        —— 资源子目录名（可选；默认 = world 小写。RZ_Victory 归在 victory\）
-# uuid       —— 8 字符短 uuid，也是磁盘文件名
+# name       —— 音轨名，也是 Musics 的 name 和 manifest 的 key 后缀
+# world      —— Musics 条目的 world 用途（这里只用于目录分组）
+# world_enum —— index.js 里 WorldMusic 枚举的成员名（Iceage 的成员叫 Ice）
+# src_uuid   —— 旧版 native/<uuid>.mp3 的文件名（迁移时从这里取音频）
 # music_len  —— 循环点秒数（Musics 的 musicLength）
-# duration   —— 音频真实时长（import json 的 _duration）
+# duration   —— 音频真实时长
 TRACKS = [
-    dict(name="RZ_Egypt",    world="Egypt",    world_enum="Egypt",    uuid="89b35a32", music_len=182.5, duration=186.24),
-    dict(name="RZ_Pirate",   world="Pirate",   world_enum="Pirate",   uuid="b7000001", music_len=182.5, duration=186.24),
-    dict(name="RZ_Cowboy",   world="Cowboy",   world_enum="Cowboy",   uuid="b7000002", music_len=181,   duration=182.88),
-    dict(name="RZ_Kongfu",   world="Kongfu",   world_enum="Kongfu",   uuid="b7000003", music_len=181,   duration=183.312),
-    dict(name="RZ_Future",   world="Future",   world_enum="Future",   uuid="b7000004", music_len=181,   duration=184.152),
-    dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     uuid="b7000005", music_len=181,   duration=185.496),
-    dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    uuid="b7000006", music_len=182.5, duration=186.24),
-    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      uuid="b7000007", music_len=182.5,   duration=186.24),
-    dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", uuid="b7000008", music_len=181,   duration=184.872),
-    dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      uuid="b7000009", music_len=181,   duration=181.577143),
-    dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     uuid="b700000a", music_len=181,   duration=184.416),
-    dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   uuid="b700000b", music_len=181,   duration=184.344),
-    dict(name="RZ_Victory",  world="All",      world_enum=None,       uuid="b700000c", music_len=3,     duration=6.024, dir="victory"),
+    dict(name="RZ_Egypt",    world="Egypt",    world_enum="Egypt",    src_uuid="89b35a32", music_len=182.5, duration=186.24),
+    dict(name="RZ_Pirate",   world="Pirate",   world_enum="Pirate",   src_uuid="b7000001", music_len=182.5, duration=186.24),
+    dict(name="RZ_Cowboy",   world="Cowboy",   world_enum="Cowboy",   src_uuid="b7000002", music_len=181,   duration=182.88),
+    dict(name="RZ_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=183.312),
+    dict(name="RZ_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.152),
+    dict(name="RZ_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=185.496),
+    dict(name="RZ_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=182.5, duration=186.24),
+    dict(name="RZ_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=182.5, duration=186.24),
+    dict(name="RZ_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.872),
+    dict(name="RZ_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=181.577143),
+    dict(name="RZ_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.416),
+    dict(name="RZ_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=181,   duration=184.344),
+    dict(name="RZ_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=3,     duration=6.024),
 ]
 
-# --------------------------------------------------------------------------
-# 每个世界一条的结算曲（Victory）
-# --------------------------------------------------------------------------
-# 为什么拆开：原来所有世界共用一条 RZ_Victory，想改结算曲只能所有世界一起改。
-# 拆成 12 条后，想换哪个世界的结算曲就换哪条，互不影响。
-# 命名用**口述简称**（AE/PI/COW/...），和上面按世界名命名的 12 条区分开：
-#   冰窟 → RZ_IC_Victory，埃及 → RZ_AE_Victory
-#
-# 初始音频直接从 RZ_Victory 复制（--check 之外的运行会自动补齐），以后逐条替换即可。
-# RZ_Victory 自己保留，作为 switch 的 default 兜底（未知世界/异常时仍有曲可播）。
+# 每个世界一条的结算曲。命名用口述简称（冰窟 → RZ_IC_Victory）。
+# RZ_Victory 保留作 switch 的 default 兜底。
 VICTORY_TRACKS = [
-    dict(name="RZ_AE_Victory",  world="Egypt",    world_enum="Egypt",
-         uuid="b700000d", music_len=3, duration=6.024),
-    dict(name="RZ_PI_Victory",  world="Pirate",   world_enum="Pirate",
-         uuid="b700000e", music_len=3, duration=6.024),
-    dict(name="RZ_COW_Victory", world="Cowboy",   world_enum="Cowboy",
-         uuid="b700000f", music_len=3, duration=6.024),
-    dict(name="RZ_KF_Victory",  world="Kongfu",   world_enum="Kongfu",
-         uuid="b7000010", music_len=3, duration=6.024),
-    dict(name="RZ_FF_Victory",  world="Future",   world_enum="Future",
-         uuid="b7000011", music_len=3, duration=6.024),
-    dict(name="RZ_DA_Victory",  world="Dark",     world_enum="Dark",
-         uuid="b7000012", music_len=3, duration=6.024),
-    dict(name="RZ_BWB_Victory", world="Beach",    world_enum="Beach",
-         uuid="b7000013", music_len=3, duration=6.024),
-    dict(name="RZ_IC_Victory",  world="Iceage",   world_enum="Ice",
-         uuid="b7000014", music_len=3, duration=6.024),
-    dict(name="RZ_LC_Victory",  world="Lostcity", world_enum="Lostcity",
-         uuid="b7000015", music_len=3, duration=6.024),
-    dict(name="RZ_SK_Victory",  world="Sky",      world_enum="Sky",
-         uuid="b7000016", music_len=3, duration=6.024),
-    dict(name="RZ_JM_Victory",  world="Dino",     world_enum="Dino",
-         uuid="b7000017", music_len=3, duration=6.024),
-    dict(name="RZ_MD_Victory",  world="Modern",   world_enum="Modern",
-         uuid="b7000018", music_len=3, duration=6.024),
+    dict(name="RZ_AE_Victory",  world="Egypt",    world_enum="Egypt",    src_uuid="b700000d", music_len=3, duration=6.024),
+    dict(name="RZ_PI_Victory",  world="Pirate",   world_enum="Pirate",   src_uuid="b700000e", music_len=3, duration=6.024),
+    dict(name="RZ_COW_Victory", world="Cowboy",   world_enum="Cowboy",   src_uuid="b700000f", music_len=3, duration=6.024),
+    dict(name="RZ_KF_Victory",  world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000010", music_len=3, duration=6.024),
+    dict(name="RZ_FF_Victory",  world="Future",   world_enum="Future",   src_uuid="b7000011", music_len=3, duration=6.024),
+    dict(name="RZ_DA_Victory",  world="Dark",     world_enum="Dark",     src_uuid="b7000012", music_len=3, duration=6.024),
+    dict(name="RZ_BWB_Victory", world="Beach",    world_enum="Beach",    src_uuid="b7000013", music_len=3, duration=6.024),
+    dict(name="RZ_IC_Victory",  world="Iceage",   world_enum="Ice",      src_uuid="b7000014", music_len=3, duration=6.024),
+    dict(name="RZ_LC_Victory",  world="Lostcity", world_enum="Lostcity", src_uuid="b7000015", music_len=3, duration=6.024),
+    dict(name="RZ_SK_Victory",  world="Sky",      world_enum="Sky",      src_uuid="b7000016", music_len=3, duration=6.024),
+    dict(name="RZ_JM_Victory",  world="Dino",     world_enum="Dino",     src_uuid="b7000017", music_len=3, duration=6.024),
+    dict(name="RZ_MD_Victory",  world="Modern",   world_enum="Modern",   src_uuid="b7000018", music_len=3, duration=6.024),
 ]
 
-# 兜底结算曲：世界 switch 的 default 指向它
 FALLBACK_VICTORY = "RZ_Victory"
-
-# 全量清单 —— 生成 import json、检查 mp3、校验都用这个
 ALL_TRACKS = TRACKS + VICTORY_TRACKS
 
 
-def folder(t):
-    """音轨的资源子目录：默认 world 小写，可用 dir 覆盖。"""
-    return t.get("dir") or t["world"].lower()
-
-
-
-TYPE_TAG = "MiniGame_C"        # 对外 MusicType 字符串，也是 Musics 的 type
-SORT_MEMBER = "MiniGameC"      # MusicSortEnum 的成员名（内部名，无下划线）
-CASE_WINDOW = 40000            # 扫描 case 编号时的窗口半径（字符）
-
-
-# --------------------------------------------------------------------------
-# 基础工具
-# --------------------------------------------------------------------------
 class Fail(Exception):
     pass
 
 
-def read_text(path):
-    with open(path, "rb") as f:
-        raw = f.read()
-    return raw.decode("utf-8")
+def read_text(p):
+    with open(p, "r", encoding="utf-8", newline="") as f:
+        return f.read()
 
 
-def write_text(path, text):
-    with open(path, "wb") as f:
-        f.write(text.encode("utf-8"))
-
-
-def sub_exact(text, old, new, label):
-    """唯一的精确字符串替换；出现 0 次或多次都算失败。"""
-    n = text.count(old)
-    if n != 1:
-        raise Fail(f"[{label}] 锚点出现 {n} 次（应为 1）：{old[:80]!r}")
-    return text.replace(old, new, 1)
-
-
-def find_alias(text, module_name):
-    """捕获 <alias> = t("ModuleName", ...) 里的别名。"""
-    m = re.search(r'([A-Za-z_$][\w$]*)\s*=\s*t\(\s*"' + re.escape(module_name) + r'"', text)
-    if not m:
-        raise Fail(f"找不到模块别名：{module_name}")
-    return m.group(1)
-
-
-def enum_param(text, alias, module_name):
-    """捕获枚举定义里那个局部参数名（terser 会改名）。"""
-    pat = (re.escape(alias) + r'\s*=\s*t\(\s*"' + re.escape(module_name)
-           + r'"\s*,\s*function\s*\(\s*([A-Za-z_$][\w$]*)\s*\)')
-    m = re.search(pat, text)
-    if not m:
-        raise Fail(f"找不到 {module_name} 的定义参数名")
-    return m.group(1)
-
-
-# --------------------------------------------------------------------------
-# index.js 的 8 处补丁
-# --------------------------------------------------------------------------
-def discover_js(text):
-    """动态发现 index.js 里的别名、枚举参数名、空闲 case 编号。"""
-    k = find_alias(text, "MusicSortEnum")
-    g = find_alias(text, "MusicEnum")
-    u = find_alias(text, "WorldMusic")
-    kp = enum_param(text, k, "MusicSortEnum")
-    gp = enum_param(text, g, "MusicEnum")
-    return dict(K=k, G=g, U=u, K_PARAM=kp, G_PARAM=gp)
-
-
-def next_sort_value(text, alias, param):
-    """MusicSortEnum 的下一个空闲数值（= 当前枚举内最大值 + 1）。
-
-    必须严格限定在 MusicSortEnum 自己的函数体内 —— 相邻的 MusicEnum 定义
-    紧接着出现，若窗口开太大会把它的成员值（如 259）也算进来。
-    """
-    start = text.find(f'{alias}=t("MusicSortEnum"')
-    if start == -1:
-        raise Fail("找不到 MusicSortEnum 定义")
-    close = f",{param}}}({{}}))"
-    end = text.find(close, start)
-    if end == -1:
-        raise Fail("找不到 MusicSortEnum 的收尾")
-    body = text[start:end]
-    nums = [int(m.group(1)) for m in re.finditer(
-        re.escape(param) + r'\.\w+=(\d+)\]', body)]
-    if not nums:
-        raise Fail("MusicSortEnum 里没解析出任何数值")
-    return max(nums) + 1
-
-
-def next_case_state(text, anchor_pos, var, field, window=400):
-    """levelController 状态机里给 MiniGame_C 用的新状态号。
-
-    只从 **MusicType 判定链本身**取数，链形如
-        `"MiniGame_A"===X?14:"MiniGame_B"===X?16:18`
-    状态号按 +2 递增，所以取链上最大值 +2（上游整体换号时会自动跟着走）。
-    窗口刻意开得很小：开大了会把同一个函数里别处的三元数字（如 94）也算进来。
-    """
-    lo = max(0, anchor_pos - window)
-    hi = min(len(text), anchor_pos + window)
-    seg = text[lo:hi]
-    key = re.escape(var) + r'\.' + re.escape(field)
-    nums = [int(n) for n in re.findall(key + r'\?(\d+):', seg)]
-    nums += [int(b) for _, b in re.findall(key + r'\?(\d+):(\d+)', seg)]
-    if not nums:
-        raise Fail("P5 附近解析不到状态号")
-    return max(nums) + 2
-
-
-def patch_index_js(text, dry=False):
-    """返回 (新文本, 改动列表)。已打过补丁则原样返回。"""
-    changes = []
-    info = discover_js(text)
-    K, G, U = info["K"], info["G"], info["U"]
-    KP, GP = info["K_PARAM"], info["G_PARAM"]
-    orig = text
-
-    # ---- P1: MusicSortEnum 增加 MiniGameC = 24 ----
-    if f".{SORT_MEMBER}=" in text:
-        changes.append(("P1 MusicSortEnum", "已存在，跳过"))
-    else:
-        val = next_sort_value(text, K, KP)
-        needle = f",{KP}}}({{}}))"
-        pos = text.find(f'{K}=t("MusicSortEnum"')
-        if pos == -1:
-            raise Fail("P1 找不到 MusicSortEnum")
-        end = text.find(needle, pos)
-        if end == -1:
-            raise Fail("P1 找不到 MusicSortEnum 的收尾")
-        ins = f',{KP}[{KP}.{SORT_MEMBER}={val}]="{SORT_MEMBER}"'
-        text = text[:end] + ins + text[end:]
-        changes.append(("P1 MusicSortEnum", f"新增 {SORT_MEMBER}={val}"))
-
-    # ---- P2: MusicEnum 增加 13 条 RZ_*，MusicAmount 顺延 ----
-    if ".RZ_Egypt=" in text:
-        changes.append(("P2 MusicEnum", "已存在，跳过"))
-    else:
-        pat = (r',' + re.escape(GP) + r'\[' + re.escape(GP)
-               + r'\.MusicAmount=(\d+)\]="MusicAmount"')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P2 找不到 MusicAmount 哨兵")
-        base = int(m.group(1))
-        entries = ",".join(
-            f'{GP}[{GP}.{t["name"]}={base + i}]="{t["name"]}"'
-            for i, t in enumerate(TRACKS)
-        )
-        new_sentinel = (f',{entries},{GP}[{GP}.MusicAmount={base + len(TRACKS)}]'
-                        f'="MusicAmount"')
-        text = text[:m.start()] + new_sentinel + text[m.end():]
-        changes.append(("P2 MusicEnum",
-                        f"新增 {len(TRACKS)} 条 RZ_*（{base}..{base + len(TRACKS) - 1}），"
-                        f"MusicAmount {base}→{base + len(TRACKS)}"))
-
-    # ---- P3: 加载器三元链增加 MiniGame_C 分支 ----
-    if f'"{TYPE_TAG}"==(null==' in text:
-        changes.append(("P3 加载器三元链", "已存在，跳过"))
-    else:
-        pat = (r'("MiniGame_B"==\(null==([A-Za-z_$][\w$]*)\?void 0:\2\.MusicType\)'
-               r'\?[A-Za-z_$][\w$]*\.push\("MiniGame_B"\):)')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P3 找不到加载器三元链")
-        v = m.group(2)
-        arr = re.search(r'([A-Za-z_$][\w$]*)\.push\("MiniGame_B"\)', m.group(1)).group(1)
-        ins = (f'"{TYPE_TAG}"==(null=={v}?void 0:{v}.MusicType)'
-               f'?{arr}.push("{TYPE_TAG}"):')
-        text = text[:m.end(1)] + ins + text[m.end(1):]
-        changes.append(("P3 加载器三元链", f'新增 "{TYPE_TAG}" 分支'))
-
-    # ---- P4: 沙盒模式强制类型列表 ----
-    if f'MiniGame_C")' in text and '"KongfuBoss","MiniGame_C"' in text:
-        changes.append(("P4 沙盒类型列表", "已存在，跳过"))
-    else:
-        old = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss")'
-        new = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss","MiniGame_C")'
-        text = sub_exact(text, old, new, "P4 沙盒类型列表")
-        changes.append(("P4 沙盒类型列表", f'追加 "{TYPE_TAG}"'))
-
-    # ---- P5 + P6: levelController 的 MusicType 判定与起始音乐 ----
-    if f'"{TYPE_TAG}"===e.t0' in text or re.search(r'"MiniGame_C"===[\w$]+\.', text):
-        changes.append(("P5 levelController 判定", "已存在，跳过"))
-    else:
-        m = re.search(r'("MiniGame_B"===([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\?16:)18', text)
-        if not m:
-            raise Fail("P5 找不到 MusicType 判定链")
-        var, field = m.group(2), m.group(3)
-        case_no = next_case_state(text, m.start(), var, field)
-        # 插在尾部那个 else 值（18）之前：
-        #   "MiniGame_B"===x?16:18  →  "MiniGame_B"===x?16:"MiniGame_C"===x?<n>:18
-        text = (text[:m.end(1)] + f'"{TYPE_TAG}"==={var}.{field}?{case_no}:'
-                + text[m.end(1):])
-        changes.append(("P5 levelController 判定",
-                        f'新增 "{TYPE_TAG}"→case {case_no}'))
-
-        # P6: 插入 case <case_no> 的分支体
-        pat6 = r'case 18:this\.startingMusic=([A-Za-z_$][\w$]*)\.CYS_Start;'
-        m6 = re.search(pat6, text)
-        if not m6:
-            raise Fail("P6 找不到 case 18 分支")
-        ME = m6.group(1)
-        body = (f'case {case_no}:return this.startingMusic={ME}.{SORT_MEMBER},'
-                f'e.abrupt("break",19);')
-        text = text[:m6.start()] + body + text[m6.start():]
-        changes.append(("P6 levelController 分支",
-                        f"插入 case {case_no} → {ME}.{SORT_MEMBER}"))
-
-    # ---- P7: switchMusic 顶部插入按世界选曲的 switch ----
-    if re.search(re.escape(K) + r'\.' + SORT_MEMBER + r'\)\{switch\(', text):
-        changes.append(("P7 switchMusic 世界分支", "已存在，跳过"))
-    else:
-        pat = (r'if\(this\.isJam=!1,([A-Za-z_$][\w$]*)==' + re.escape(K)
-               + r'\.Victory&&this\.currentMusicSort==' + re.escape(K)
-               + r'\.UltimateBattle\)')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P7 找不到 switchMusic 的 isJam/Victory 判定")
-        world_var = m.group(1)
-        EN, SORT, WORLD = G, K, U
-        # 找出承载世界名的变量：switch(?) 的实参在后续代码里是 t
-        wv = re.search(r'e==' + re.escape(K) + r'\.\w+\{switch\(([A-Za-z_$][\w$]*)\)',
-                       text)
-        wv_name = wv.group(1) if wv else "t"
-        cases = []
-        for t in TRACKS:
-            if not t["world_enum"]:
-                continue
-            cases.append(f'case {WORLD}.{t["world_enum"]}:'
-                         f'S={EN}.{t["name"]};break;')
-        fallback = next(t["name"] for t in TRACKS if t["world"] == "Future")
-        block = (f'if(this.isJam=!1,e=={SORT}.{SORT_MEMBER}){{switch({wv_name}){{'
-                 + "".join(cases)
-                 + f'default:S={EN}.{fallback},this.isJam=!0}}g=!0}}else ')
-        text = text[:m.start()] + block + text[m.start():]
-        changes.append(("P7 switchMusic 世界分支",
-                        f'插入 {len(cases)} 个世界分支'))
-
-    # ---- P8: Victory 结算曲（共用一条的版本；P10 会把它拆成按世界选曲）----
-    # 注意 guard 必须带 currentMusicSort== 前缀：只写 K.MiniGameC) 会误命中 P7
-    # 那个 MiniGameC 分支，导致 P8 永远跳过、RZ_Victory 分支加不上。
-    # 同时要兼容 P10 改过之后的形态（){switch(）。
-    if re.search(r'currentMusicSort==' + re.escape(K) + r'\.' + SORT_MEMBER
-                 + r'\)(S=' + re.escape(G) + r'\.RZ_Victory|\{switch\()', text):
-        changes.append(("P8 Victory 结算曲", "已存在，跳过"))
-    else:
-        pat = (r'(else if\(e==' + re.escape(K) + r'\.Victory&&this\.currentMusicSort=='
-               + re.escape(K) + r'\.DemonstrateMinigame\)S=' + re.escape(G)
-               + r'\.MG_Victory,g=!1,r=1;)')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P8 找不到 MG_Victory 结算分支")
-        ins = (f'else if(e=={K}.Victory&&this.currentMusicSort=={K}.{SORT_MEMBER})'
-               f'S={G}.RZ_Victory,g=!1,r=1;')
-        text = text[:m.end(1)] + ins + text[m.end(1):]
-        changes.append(("P8 Victory 结算曲", "新增 RZ_Victory 分支"))
-
-    # ---- P9: MusicEnum 追加 12 条每个世界的 Victory ----
-    if f'.{VICTORY_TRACKS[0]["name"]}=' in text:
-        changes.append(("P9 Victory 枚举", "已存在，跳过"))
-    else:
-        pat = (r',' + re.escape(GP) + r'\[' + re.escape(GP)
-               + r'\.MusicAmount=(\d+)\]="MusicAmount"')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P9 找不到 MusicAmount 哨兵")
-        base = int(m.group(1))
-        entries = ",".join(
-            f'{GP}[{GP}.{t["name"]}={base + i}]="{t["name"]}"'
-            for i, t in enumerate(VICTORY_TRACKS))
-        new = (f',{entries},{GP}[{GP}.MusicAmount={base + len(VICTORY_TRACKS)}]'
-               f'="MusicAmount"')
-        text = text[:m.start()] + new + text[m.end():]
-        changes.append(("P9 Victory 枚举",
-                        f"新增 {len(VICTORY_TRACKS)} 条"
-                        f"（{base}..{base + len(VICTORY_TRACKS) - 1}），"
-                        f"MusicAmount {base}→{base + len(VICTORY_TRACKS)}"))
-
-    # ---- P10: Victory 也按世界选曲（原来所有世界共用一条）----
-    if re.search(r'currentMusicSort==' + re.escape(K) + r'\.' + SORT_MEMBER
-                 + r'\)\{switch\(', text):
-        changes.append(("P10 Victory 按世界选曲", "已存在，跳过"))
-    else:
-        pat = (r'(else if\(e==' + re.escape(K) + r'\.Victory&&this\.currentMusicSort=='
-               + re.escape(K) + r'\.' + SORT_MEMBER + r'\))S=' + re.escape(G)
-               + r'\.' + FALLBACK_VICTORY + r',g=!1,r=1;')
-        m = re.search(pat, text)
-        if not m:
-            raise Fail("P10 找不到 RZ_Victory 结算分支（先跑一次 P8）")
-        # 世界变量：switchMusic 的第一个形参，与 P7 用的是同一个
-        wv = re.search(r'e==' + re.escape(K) + r'\.\w+\{switch\(([A-Za-z_$][\w$]*)\)',
-                       text)
-        wv_name = wv.group(1) if wv else "t"
-        cases = "".join(f'case {U}.{t["world_enum"]}:S={G}.{t["name"]};break;'
-                        for t in VICTORY_TRACKS)
-        body = (m.group(1) + '{switch(' + wv_name + '){' + cases
-                + f'default:S={G}.{FALLBACK_VICTORY};}}g=!1,r=1;}}')
-        text = text[:m.start()] + body + text[m.end():]
-        changes.append(("P10 Victory 按世界选曲",
-                        f"拆成 {len(VICTORY_TRACKS)} 个世界分支，"
-                        f"default 保留 {FALLBACK_VICTORY}"))
-
-    return text, changes, ([] if text == orig else ["index.js"])
-
-
-# --------------------------------------------------------------------------
-# config.json 的 2 处补丁
-# --------------------------------------------------------------------------
-def patch_config_json(text, dry=False):
-    changes = []
-    orig = text
-    obj = json.loads(text)
-
-    if any("RZ_" in str(v) for v in obj["paths"].values()):
-        changes.append(("C1 config.json", "已存在，跳过"))
-    else:
-        text = _c1_c2(text, obj, changes)[0]
-        obj = json.loads(text)
-
-    # ---- C3/C4: 12 条每个世界的 Victory 注册 ----
-    has_victory = any(
-        isinstance(v, list) and v and str(v[0]).endswith(
-            "/" + VICTORY_TRACKS[0]["name"])
-        for v in json.loads(text)["paths"].values())
-    if has_victory:
-        changes.append(("C3 Victory 注册", "已存在，跳过"))
-    else:
-        cur = json.loads(text)
-        # C3: uuids 追加
-        add = ",".join(f'"{t["uuid"]}"' for t in VICTORY_TRACKS)
-        tail = re.search(r'\],"paths":\{', text)
-        if not tail:
-            raise Fail("C3 找不到 uuids 数组结尾")
-        base = len(cur["uuids"])
-        text = text[:tail.start()] + "," + add + text[tail.start():]
-        changes.append(("C3 uuids",
-                        f"追加 {len(VICTORY_TRACKS)} 个（{base}.."
-                        f"{base + len(VICTORY_TRACKS) - 1}）"))
-        # C4: paths 追加（下标必须与 uuids 一一对应）
-        cur2 = json.loads(text)
-        last_key = max(int(k) for k in cur2["paths"])
-        pat = re.compile(r'"' + str(last_key) + r'":\[[^\]]*\]')
-        m2 = pat.search(text)
-        if not m2:
-            raise Fail(f"C4 找不到 paths 的最后一条（{last_key}）")
-        items = [f'"{base + i}":["music/inGame/{folder(t)}/{t["name"]}",5,1]'
-                 for i, t in enumerate(VICTORY_TRACKS)]
-        text = text[:m2.end()] + "," + ",".join(items) + text[m2.end():]
-        changes.append(("C4 paths", f"追加 {len(VICTORY_TRACKS)} 条"))
-
-    return text, changes, ([] if text == orig else ["config.json"])
-
-
-def _c1_c2(text, obj, changes):
-    """C1/C2：13 条 RZ 主音轨的 uuids + paths 追加。返回 (新文本, 新 obj)。"""
-
-    # ---- C1: uuids 追加 ----
-    m = re.search(r'("uuids":\[)', text)
-    if not m:
-        raise Fail("C1 找不到 uuids 数组")
-    uuids_len = len(obj["uuids"])
-    add = ",".join(f'"{t["uuid"]}"' for t in TRACKS)
-    # 插到 uuids 数组的末尾（即 "],"paths":{ 之前）
-    tail = re.search(r'\],"paths":\{', text)
-    if not tail:
-        raise Fail("C1 找不到 uuids 数组结尾")
-    text = text[:tail.start()] + "," + add + text[tail.start():]
-    changes.append(("C1 uuids", f"追加 {len(TRACKS)} 个 uuid"))
-
-    # ---- C2: paths 追加（下标 = 补丁前 uuids 长度）----
-    last_key = max(int(k) for k in obj["paths"])
-    pat = re.compile(r'"' + str(last_key) + r'":\[[^\]]*\]')
-    m2 = pat.search(text)
-    if not m2:
-        raise Fail(f"C2 找不到 paths 的最后一条（{last_key}）")
-    items = []
-    for i, t in enumerate(TRACKS):
-        idx = uuids_len + i
-        path = f'music/inGame/{folder(t)}/{t["name"]}'
-        items.append(f'"{idx}":["{path}",5,1]')
-    ins = "," + ",".join(items)
-    text = text[:m2.end()] + ins + text[m2.end():]
-    changes.append(("C2 paths",
-                    f"追加 {len(TRACKS)} 条（下标 {uuids_len}..{uuids_len + len(TRACKS) - 1}）"))
-    return text, changes
-
-
-# --------------------------------------------------------------------------
-# 0a278bb49.json 的 1 处补丁
-# --------------------------------------------------------------------------
-MUSICS_ANCHOR_SUFFIX = '"musicLength":28,"world":"All","type":["Always"]}'
-
-
-def patch_music_json(text, dry=False):
-    if '"RZ_Egypt"' in text:
-        # 已存在 → **不能只跳过**。换音频后循环点会变，而 musicLength 是 index.js
-        # 里真正的切歌点（`currentTime >= musicLength && changeLoopPlayer()`），
-        # 不跟着改，游戏就会在旧的点切歌。所以这里要按 TRACKS 逐条同步。
-        changes = [("M1 Musics 条目", "已存在，只同步 musicLength")]
-        touched = []
-        for t in TRACKS:
-            pat = re.compile(r'("name":"' + re.escape(t["name"]) +
-                             r'","path":"[^"]*","musicLength":)([0-9.]+)')
-            m = pat.search(text)
-            if not m:
-                raise Fail(f"Musics 里找不到 {t['name']} 的条目")
-            new = _num(t["music_len"])
-            if m.group(2) == new:
-                continue
-            text = text[:m.start(2)] + new + text[m.end(2):]
-            changes.append((f"  {t['name']}",
-                            f"musicLength {m.group(2)} → {new}"))
-            touched.append("0a278bb49.json")
-        # M2: 12 条每个世界的 Victory。必须插在 RZ_Victory **之后**，
-        # 这样它们在数组里的下标正好是 273..284，与 P9 给的枚举值对上
-        # （verify 会逐条比对「枚举值 == Musics 下标」，错位就报错）。
-        if f'"{VICTORY_TRACKS[0]["name"]}"' in text:
-            changes.append(("M2 Victory 条目", "已存在，跳过"))
-        else:
-            m = re.search(r'\{"name":"' + FALLBACK_VICTORY +
-                          r'","path":"[^"]*","musicLength":[^,]*,"world":"[^"]*",'
-                          r'"type":\[[^\]]*\]\}', text)
-            if not m:
-                raise Fail("M2 找不到 RZ_Victory 条目")
-            items = ",".join(
-                '{"name":"%s","path":"inGame/%s/%s","musicLength":%s,'
-                '"world":"%s","type":["%s"]}'
-                % (t["name"], folder(t), t["name"],
-                   _num(t["music_len"]), t["world"], TYPE_TAG)
-                for t in VICTORY_TRACKS)
-            text = text[:m.end()] + "," + items + text[m.end():]
-            changes.append(("M2 Victory 条目",
-                            f"追加 {len(VICTORY_TRACKS)} 条（下标 273.."
-                            f"{272 + len(VICTORY_TRACKS)}）"))
-            touched.append("0a278bb49.json")
-
-        if not touched:
-            return text, changes + [("M1 musics", "musicLength 全部一致")], []
-        return text, changes, ["0a278bb49.json"]
-
-    pat = re.compile(r'("path":"dialogue/Dialogue_Dave_LP",' + re.escape(MUSICS_ANCHOR_SUFFIX) + r')')
-    m = pat.search(text)
-    if not m:
-        raise Fail("M1 找不到 Musics 数组的最后一条（Dialogue_Dave_LP）")
-    # 确认其后紧跟数组结束
-    after = text[m.end():m.end() + 2]
-    if not after.startswith("]"):
-        raise Fail(f"M1 锚点后不是数组结尾，而是 {after!r}")
-
-    items = []
-    for t in TRACKS:
-        items.append(
-            '{"name":"%s","path":"inGame/%s/%s","musicLength":%s,"world":"%s",'
-            '"type":["%s"]}'
-            % (t["name"], folder(t), t["name"],
-               _num(t["music_len"]), t["world"], TYPE_TAG)
-        )
-    text = text[:m.end()] + "," + ",".join(items) + text[m.end():]
-    return text, [("M1 Musics 条目", f"追加 {len(TRACKS)} 条")], ["0a278bb49.json"]
+def write_text(p, s):
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        f.write(s)
 
 
 def _num(v):
@@ -583,188 +130,428 @@ def _num(v):
     return str(int(v)) if float(v) == int(v) else repr(float(v))
 
 
+def audio_rel(t):
+    """音频相对 audio/ 的路径：Music/inGame/RZ_Egypt/RZ_Egypt.mp3"""
+    return "%s/%s/%s.mp3" % (AUDIO_ROOT.replace("\\", "/"), t["name"], t["name"])
+
+
+def audio_abs(repo, t):
+    return os.path.join(repo, "docs", "audio", audio_rel(t).replace("/", os.sep))
+
+
+def manifest_key(t):
+    """manifest 的 key。加 rk_ 前缀避免与上游 key 撞车。"""
+    return "rk_" + t["name"]
+
+
 # --------------------------------------------------------------------------
-# import json 生成（Cocos AudioClip 描述）
+# 0.16.0 的 index.js 锚点
 # --------------------------------------------------------------------------
-IMPORT_TEMPLATE = ('[1,0,0,[["cc.AudioClip",["_name","_native","_duration"],0]],'
-                   '[[0,0,1,2,4]],[[0,"{name}",".mp3",{dur}],-1],0,0,[],[],[]]')
+def find_enum_alias(js, enum_name):
+    """返回 (枚举别名, 参数名)。例：A = t('MusicEnum', function(t){...})"""
+    m = re.search(r"([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\(\"" +
+                  re.escape(enum_name) + r"\",\s*function\s*\(([A-Za-z_$][\w$]*)\)",
+                  js)
+    if not m:
+        raise Fail(f"找不到 {enum_name} 的定义")
+    return m.group(1), m.group(2)
 
 
-def ensure_victory_mp3(repo, dry=False):
-    """给每个世界的 Victory 轨补上音频（直接从 RZ_Victory 复制）。
+def patch_index_js(js):
+    """给 0.16.0 的 index.js 打 MiniGameC 补丁。返回 (新文本, 改动列表)。"""
+    changes = []
+    orig = js
+    EN, EP = find_enum_alias(js, "MusicEnum")          # 音乐枚举别名 + 参数
+    SORT, SP = find_enum_alias(js, "MusicSortEnum")    # 排序枚举
+    WORLD, _ = find_enum_alias(js, "WorldMusic")       # 世界枚举
 
-    拆分的意义是"以后能逐条替换"，所以初始内容必须是一份独立拷贝 —— 不能让
-    12 条共用同一个文件，否则换一条就会把所有世界一起改掉。
-    """
-    src_t = next(t for t in TRACKS if t["name"] == FALLBACK_VICTORY)
-    src = os.path.join(repo, "docs", "assets", "resources", "native",
-                       src_t["uuid"][:2], src_t["uuid"] + ".mp3")
+    # ---- S1: MusicSortEnum += MiniGameC ----
+    if re.search(r"\b" + SP + r"\[" + SP + r"\.MiniGameC=", js):
+        changes.append(("S1 MusicSortEnum", "已存在，跳过"))
+    else:
+        tail = js.find("t}({}))", js.find('"MusicSortEnum"'))
+        if tail < 0:
+            raise Fail("S1 找不到 MusicSortEnum 的收尾")
+        # 当前最大成员值
+        seg_start = js.find('"MusicSortEnum"')
+        vals = [int(v) for _, v in re.findall(
+            r"t\[t\.(\w+)=(\d+)\]=\"", js[seg_start:tail])]
+        base = max(vals) + 1 if vals else 0
+        # 原版收尾是 `,t[t.Stage4_LP=23]="Stage4_LP",t}({}))`
+        # 注意末尾那个逗号 —— 插到这里要**自带尾逗号、不带前导逗号**，
+        # 否则会变成 `,,` 且缺分隔符。
+        ins = f'{SP}[{SP}.{SORT_MEMBER}={base}]="{SORT_MEMBER}",'
+        js = js[:tail] + ins + js[tail:]
+        changes.append(("S1 MusicSortEnum", f"新增 {SORT_MEMBER}={base}"))
+
+    # ---- S2: MusicEnum += 25 条 RZ_*，MusicAmount 顺延 ----
+    if f'.{TRACKS[0]["name"]}=' in js:
+        changes.append(("S2 MusicEnum", "已存在，跳过"))
+    else:
+        m = re.search(r"," + re.escape(EP) + r"\[" + re.escape(EP) +
+                      r"\.MusicAmount=(\d+)\]=\"MusicAmount\"", js)
+        if not m:
+            raise Fail("S2 找不到 MusicAmount 哨兵")
+        base = int(m.group(1))
+        items = ",".join(f'{EP}[{EP}.{t["name"]}={base + i}]="{t["name"]}"'
+                         for i, t in enumerate(ALL_TRACKS))
+        new = (f',{items},{EP}[{EP}.MusicAmount={base + len(ALL_TRACKS)}]'
+               f'="MusicAmount"')
+        js = js[:m.start()] + new + js[m.end():]
+        changes.append(("S2 MusicEnum",
+                        f"新增 {len(ALL_TRACKS)} 条（{base}.."
+                        f"{base + len(ALL_TRACKS) - 1}），"
+                        f"MusicAmount {base}→{base + len(ALL_TRACKS)}"))
+
+    # ---- S3: 沙盒强制类型列表 ----
+    needle = '"MiniGame_A","MiniGame_B","Normal","Zomboss","KongfuBoss")'
+    if needle.replace("KongfuBoss\")", f'KongfuBoss","{TYPE_TAG}")') in js:
+        changes.append(("S3 沙盒类型列表", "已存在，跳过"))
+    elif needle in js:
+        js = js.replace(needle,
+                        needle[:-1] + f',"{TYPE_TAG}")', 1)
+        changes.append(("S3 沙盒类型列表", f'追加 "{TYPE_TAG}"'))
+    else:
+        raise Fail("S3 找不到沙盒强制类型列表")
+
+    # ---- S4: 加载器三元链（MusicType → 资源包列表）----
+    if f'"{TYPE_TAG}"==(null==' in js:
+        changes.append(("S4 加载器三元链", "已存在，跳过"))
+    else:
+        pat = (r'("MiniGame_B"==\(null==([A-Za-z_$][\w$]*)\?void 0:\2\.MusicType\)'
+               r'\?([A-Za-z_$][\w$]*)\.push\("MiniGame_B"\):)')
+        m = re.search(pat, js)
+        if not m:
+            raise Fail("S4 找不到加载器三元链")
+        v, arr = m.group(2), m.group(3)
+        ins = (f'"{TYPE_TAG}"==(null=={v}?void 0:{v}.MusicType)'
+               f'?{arr}.push("{TYPE_TAG}"):')
+        js = js[:m.end(1)] + ins + js[m.end(1):]
+        changes.append(("S4 加载器三元链", f'新增 "{TYPE_TAG}" 分支'))
+
+    # ---- S5: levelController 的 MusicType → 起始音乐 ----
+    if re.search(r'"' + re.escape(TYPE_TAG) + r'"===\w+\.t0', js):
+        changes.append(("S5 levelController", "已存在，跳过"))
+    else:
+        m = re.search(r'"MiniGame_B"===([A-Za-z_$][\w$]*)\.t0\?(\d+):(\d+)', js)
+        if not m:
+            raise Fail("S5 找不到 MusicType 判定三元链")
+        var, case_b, case_def = m.group(1), int(m.group(2)), int(m.group(3))
+        # 在 MiniGame_B 分支和 else 之间插一个新 case 号
+        new_case = case_b + 1
+        # MiniGame_B 的 case 体 + 紧邻的下一个 case 整体后移
+        js = re.sub(r'(case 16:return this\.startingMusic=[\w$.]+'
+                    r',e\.abrupt\("break",19\);)',
+                    r'\1', js)  # 仅确认存在
+        # 改三元链：MiniGame_B→16, MiniGame_C→新号, else→原 else
+        js = js[:m.start()] + (
+            f'"MiniGame_B"==={var}.t0?{case_b}:"{TYPE_TAG}"==={var}.t0?'
+            f'{new_case}:{case_def}') + js[m.end():]
+        changes.append(("S5 levelController",
+                        f"新增 {TYPE_TAG}→case {new_case}"))
+
+        # S6: 插入 case 体（在 case 18 前）
+        pat6 = r"case 18:this\.startingMusic=([A-Za-z_$][\w$]*)\.CYS_Start;"
+        m6 = re.search(pat6, js)
+        if not m6:
+            raise Fail("S6 找不到 case 18 分支")
+        ME = m6.group(1)
+        body = (f'case {new_case}:return this.startingMusic={ME}.{SORT_MEMBER},'
+                f'e.abrupt("break",19);')
+        js = js[:m6.start()] + body + js[m6.start():]
+        changes.append(("S6 levelController 分支",
+                        f"插入 case {new_case}"))
+
+    # ---- S7: switchMusic 的 MiniGameC 分支（按世界选曲）----
+    # 0.16.0 的 switchMusic 是 regenerator 状态机，形如：
+    #     case 7: ... this.isJam=!1,o){t.next=270;break}
+    #             if(a!=v.Victory||...UltimateBattle){t.next=20;break}
+    #             u=A.UB_Victory,...
+    # 每个分支都是「if(条件不满足){跳到下一个 case} 本体 t.next=270;break;」
+    # 所以插入一个**独立语句块**即可：条件成立就处理并跳出（t.next=270），
+    # 不成立就自然往下滑到原有的判定。**不需要改任何 case 编号**。
+    if re.search(re.escape(SORT_MEMBER) + r"\)\{switch\(", js):
+        changes.append(("S7 switchMusic 分支", "已存在，跳过"))
+    else:
+        anchor = "this.isJam=!1,o){t.next=270;break}"
+        pos = js.find(anchor)
+        if pos < 0:
+            raise Fail("S7 找不到 switchMusic 的 isJam 锚点")
+        # 形参：(e=world, a=sort, ...)
+        m_sig = re.search(r"mark\(\(function t\((\w+),(\w+),", js[js.find("switchMusic=function("):])
+        if not m_sig:
+            raise Fail("S7 解析不出 switchMusic 的形参")
+        world_var, sort_var = m_sig.group(1), m_sig.group(2)
+
+        cases = "".join(
+            f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
+            for t in TRACKS if t["world_enum"])
+        block = (f'if({sort_var}=={SORT}.{SORT_MEMBER}){{switch({world_var}){{'
+                 f'{cases}default:u={EN}.RZ_Future;}}g=!0,t.next=270;break}}')
+        cut = pos + len(anchor)
+        js = js[:cut] + block + js[cut:]
+        changes.append(("S7 switchMusic 分支",
+                        f"插入 {len(TRACKS) - 1} 个世界分支"))
+
+    # ---- S8: Victory 也按世界选曲 ----
+    # 插在 UltimateBattle 那个 Victory 分支之后（它已 `break;`，后面是 case 20 标签），
+    # 同样是独立语句块，不碰 case 编号。
+    if re.search(r"currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
+                 + r"&&|currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
+                 + r"\)\{switch", js):
+        changes.append(("S8 Victory 按世界选曲", "已存在，跳过"))
+    else:
+        anchor = f"u={EN}.UB_Victory,g=!1,s=1,t.next=270;break;"
+        pos = js.find(anchor)
+        if pos < 0:
+            raise Fail("S8 找不到 UltimateBattle 的 Victory 分支")
+        vcases = "".join(
+            f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
+            for t in VICTORY_TRACKS if t["world_enum"])
+        block = (f'if({sort_var}=={SORT}.Victory&&this.currentMusicSort=='
+                 f'{SORT}.{SORT_MEMBER}){{switch({world_var}){{'
+                 f'{vcases}default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,'
+                 f't.next=270;break}}')
+        cut = pos + len(anchor)
+        js = js[:cut] + block + js[cut:]
+        changes.append(("S8 Victory 按世界选曲",
+                        f"插入 {len(VICTORY_TRACKS)} 个世界分支，"
+                        f"default 保留 {FALLBACK_VICTORY}"))
+
+    return js, changes, ([] if js == orig else ["index.js"])
+
+
+# --------------------------------------------------------------------------
+# Musics 数组（在 import/ 里按内容搜索，不依赖文件名）
+# --------------------------------------------------------------------------
+def find_musics_json(repo):
+    """返回 (路径, 文本)。0.16.0 起文件名是内容哈希，不能写死。"""
+    root = os.path.join(repo, "docs", "assets", "resources", "import")
+    hits = []
+    for r, _, fs in os.walk(root):
+        for f in fs:
+            if not f.endswith(".json"):
+                continue
+            p = os.path.join(r, f)
+            try:
+                with open(p, "rb") as fh:
+                    if b'"Musics":[' in fh.read():
+                        hits.append(p)
+            except OSError:
+                pass
+    if not hits:
+        raise Fail("在 import/ 里找不到含 Musics 的文件")
+    if len(hits) > 1:
+        hits.sort(key=os.path.getsize, reverse=True)
+    return hits[0], read_text(hits[0])
+
+
+def patch_musics(repo, text):
+    """追加 25 条 RZ 条目；已存在则只同步 musicLength。"""
+    changes = []
+    orig = text
+    anchor = '{"name":"Dialogue_Dave_LP"'   # Musics 的最后一条
+    m_anchor = text.find(anchor)
+    if m_anchor < 0:
+        raise Fail("找不到 Musics 的最后一条（Dialogue_Dave_LP）")
+
+    def build(t):
+        return ('{"name":"%s","tauri":"%s","musicLength":%s}'
+                % (t["name"], manifest_key(t), _num(t["music_len"])))
+
+    if f'"{TRACKS[0]["name"]}"' in text:
+        changes.append(("M1 Musics", "已存在，同步 musicLength"))
+        for t in ALL_TRACKS:
+            pat = re.compile(r'("name":"' + re.escape(t["name"]) +
+                             r'","tauri":"[^"]*","musicLength":)([0-9.]+)')
+            mm = pat.search(text)
+            if not mm:
+                raise Fail(f"Musics 缺 {t['name']}")
+            new = _num(t["music_len"])
+            if mm.group(2) != new:
+                text = text[:mm.start(2)] + new + text[mm.end(2):]
+                changes.append((f"  {t['name']}",
+                                f"musicLength {mm.group(2)} → {new}"))
+    else:
+        items = ",".join(build(t) for t in ALL_TRACKS)
+        # 插在最后一条之后
+        end = text.find("}", m_anchor)
+        if end < 0:
+            raise Fail("Musics 锚点结构异常")
+        text = text[:end + 1] + "," + items + text[end + 1:]
+        changes.append(("M1 Musics", f"追加 {len(ALL_TRACKS)} 条"))
+
+    return text, changes, ([] if text == orig else ["musics"])
+
+
+# --------------------------------------------------------------------------
+# manifest.json
+# --------------------------------------------------------------------------
+def patch_manifest(repo):
+    """在 docs/audio/manifest.json 里注册 25 个 key。"""
+    p = os.path.join(repo, "docs", "audio", "manifest.json")
+    if not os.path.exists(p):
+        raise Fail(f"找不到 {p}")
+    text = read_text(p)
+    changes = []
+    orig = text
+    if manifest_key(TRACKS[0]) in text:
+        changes.append(("A1 manifest", "已存在，跳过"))
+        return text, changes, ([] if text == orig else [])
+    # 插在最后一个键之后
+    m = re.search(r'\n\}\s*$', text)
+    if not m:
+        raise Fail("manifest.json 结构异常（找不到结尾 }）")
+    items = "".join(',\n  "%s": "%s"' % (manifest_key(t), audio_rel(t))
+                    for t in ALL_TRACKS)
+    text = text[:m.start()] + items + text[m.start():]
+    changes.append(("A1 manifest", f"注册 {len(ALL_TRACKS)} 个 key"))
+    return text, changes, ["manifest.json"]
+
+
+# --------------------------------------------------------------------------
+# 音频文件
+# --------------------------------------------------------------------------
+def migrate_audio(repo, dry=False):
+    """把旧 native/<uuid>.mp3 搬到 audio/Music/inGame/<RZ名>/<RZ名>.mp3。"""
     out = []
-    for t in VICTORY_TRACKS:
-        dst = os.path.join(repo, "docs", "assets", "resources", "native",
-                           t["uuid"][:2], t["uuid"] + ".mp3")
+    for t in ALL_TRACKS:
+        dst = audio_abs(repo, t)
         if os.path.exists(dst):
             out.append((t["name"], "已在位"))
             continue
+        # 来源 1：旧 native 目录（<< 0.16.0 的布局）
+        src = os.path.join(repo, "docs", "assets", "resources", "native",
+                           t["src_uuid"][:2], t["src_uuid"] + ".mp3")
+        if not os.path.exists(src):
+            out.append((t["name"], f"缺源文件 {t['src_uuid']}.mp3"))
+            continue
         if dry:
-            out.append((t["name"], "缺失（dry-run 未复制）"))
+            out.append((t["name"], "待复制"))
             continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
-        out.append((t["name"], f"已从 {FALLBACK_VICTORY} 复制"))
+        out.append((t["name"], "已复制"))
     return out
 
 
-def gen_import_json(repo, dry=False):
-    out = []
-    for t in ALL_TRACKS:
-        sub = t["uuid"][:2]
-        p = os.path.join(repo, "docs", "assets", "resources", "import", sub,
-                         t["uuid"] + ".json")
-        body = IMPORT_TEMPLATE.format(name=t["name"], dur=_num(t["duration"]))
-        if os.path.exists(p):
-            cur = read_text(p)
-            if cur == body:
-                out.append((t["name"], "已一致，跳过"))
-                continue
-            if dry:
-                out.append((t["name"], "内容不同（dry-run 未写）"))
-                continue
-            write_text(p, body)
-            out.append((t["name"], "已重建"))
-        else:
-            if dry:
-                out.append((t["name"], "缺失（dry-run 未建）"))
-                continue
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            write_text(p, body)
-            out.append((t["name"], "已新建"))
-    return out
+# --------------------------------------------------------------------------
+# import json（0.16 起由音频目录直接提供，不再需要 Cocos AudioClip 描述）
+# --------------------------------------------------------------------------
+def check_import_jsons(repo):
+    """0.16.0 用 game-audio.js + <audio> 播，不再走 Cocos AudioClip。
 
-
-def check_mp3(repo):
-    miss = []
-    for t in ALL_TRACKS:
-        sub = t["uuid"][:2]
-        p = os.path.join(repo, "docs", "assets", "resources", "native", sub,
-                         t["uuid"] + ".mp3")
-        if not os.path.exists(p):
-            miss.append((t["name"], os.path.relpath(p, repo)))
-    return miss
+    所以 import/<uuid>.json 里的 RZ 条目**不再是必需的**。这里只报告残留，
+    不做任何删除 —— 留着也不影响运行。
+    """
+    stale = []
+    imp = os.path.join(repo, "docs", "assets", "resources", "import", "b7")
+    if os.path.isdir(imp):
+        for f in sorted(os.listdir(imp)):
+            if f.startswith("b70000"):
+                stale.append(f)
+    return stale
 
 
 # --------------------------------------------------------------------------
 # 校验
 # --------------------------------------------------------------------------
-def verify(repo, verbose=True):
+def verify(repo):
     problems = []
-    js_p = os.path.join(repo, "docs", "assets", "main", "index.js")
-    cfg_p = os.path.join(repo, "docs", "assets", "resources", "config.json")
-    mj_p = os.path.join(repo, "docs", "assets", "resources", "import", "0a",
-                        "0a278bb49.json")
+    js = read_text(os.path.join(repo, "docs", "assets", "main", "index.js"))
+    EN, EP = find_enum_alias(js, "MusicEnum")
+    SORT, SP = find_enum_alias(js, "MusicSortEnum")
 
-    js = read_text(js_p)
-    cfg = read_text(cfg_p)
-    mj = read_text(mj_p)
-
-    # index.js
-    if f'.{SORT_MEMBER}=' not in js:
-        problems.append("index.js: 缺 MusicSortEnum 成员")
-    if '".RZ_Egypt="'.strip('"') not in js:
+    if f".{SORT_MEMBER}=" not in js:
+        problems.append("index.js: 缺 MusicSortEnum.MiniGameC")
+    if f'.{TRACKS[0]["name"]}=' not in js:
         problems.append("index.js: 缺 RZ_* 枚举")
     if f'"{TYPE_TAG}"==(null==' not in js:
-        problems.append("index.js: 缺加载器三元链分支")
-    if f'"KongfuBoss","{TYPE_TAG}"' not in js:
-        problems.append("index.js: 缺沙盒类型列表项")
-    if not re.search(r'"' + re.escape(TYPE_TAG) + r'"===[\w$]+\.', js):
+        problems.append("index.js: 缺加载器三元链")
+    if not re.search(r'"' + re.escape(TYPE_TAG) + r'"===', js):
         problems.append("index.js: 缺 levelController 判定")
-    if not re.search(re.escape(SORT_MEMBER) + r'\)\{switch\(', js):
-        problems.append("index.js: 缺 switchMusic 世界分支")
-    if not re.search(r'currentMusicSort==[\w$]+\.' + re.escape(SORT_MEMBER)
-                     + r'\)(S=[\w$]+\.' + FALLBACK_VICTORY + r'|\{switch\()', js):
-        problems.append("index.js: 缺 Victory 结算曲")
-    if not re.search(r'currentMusicSort==[\w$]+\.' + re.escape(SORT_MEMBER)
-                     + r'\)\{switch\(', js):
-        problems.append("index.js: 缺 Victory 按世界选曲分支")
+    if not re.search(re.escape(SORT_MEMBER) + r"\)\{switch|"
+                     + re.escape(SORT_MEMBER) + r"\)\{u=", js):
+        problems.append("index.js: 缺 switchMusic 的 MiniGameC 分支")
 
-    # 枚举值与 Musics 下标一致（铁律）
+    # Musics
     try:
-        o = json.loads(cfg)
+        mj_path, mj = find_musics_json(repo)
+        for t in ALL_TRACKS:
+            if f'"name":"{t["name"]}"' not in mj:
+                problems.append(f"Musics 缺 {t['name']}")
+        # 枚举值 == Musics 下标（铁律）
+        vals = {k: int(v) for k, v in re.findall(
+            re.escape(EP) + r"\[" + re.escape(EP) + r"\.(\w+)=(\d+)\]=\"", js)}
+        obj = json.loads(mj)
         musics = None
-        for el in json.loads(mj):
-            if isinstance(el, dict) and "Musics" in el:
-                musics = el["Musics"]
-        g = find_alias(js, "MusicEnum")
-        gp = enum_param(js, g, "MusicEnum")
-        vals = {}
-        for m in re.finditer(re.escape(gp) + r'\[' + re.escape(gp)
-                            + r'\.(\w+)=(\d+)\]="', js):
-            vals[m.group(1)] = int(m.group(2))
-        if musics is not None:
-            for i, t in enumerate(ALL_TRACKS):
+
+        def walk(o):
+            nonlocal musics
+            if isinstance(o, dict):
+                if "Musics" in o:
+                    musics = o["Musics"]
+                    return True
+                for v in o.values():
+                    if walk(v):
+                        return True
+            elif isinstance(o, list):
+                for v in o:
+                    if walk(v):
+                        return True
+            return False
+        walk(obj)
+        if musics is None:
+            problems.append("Musics 数组解析失败")
+        else:
+            for t in ALL_TRACKS:
                 v = vals.get(t["name"])
                 if v is None:
                     problems.append(f"枚举缺 {t['name']}")
                     continue
-                expected = None
-                for k, e in enumerate(musics):
-                    if isinstance(e, dict) and e.get("name") == t["name"]:
-                        expected = k
-                        break
-                if expected is None:
+                idx = next((i for i, e in enumerate(musics)
+                            if isinstance(e, dict) and e.get("name") == t["name"]),
+                           None)
+                if idx is None:
                     problems.append(f"Musics 缺 {t['name']}")
-                elif expected != v:
-                    problems.append(
-                        f"{t['name']} 下标错位：枚举={v} Musics={expected}")
-        # RZ 路径注册
-        rz = {k: v for k, v in o["paths"].items() if "RZ_" in str(v)}
-        if len(rz) != len(ALL_TRACKS):
-            problems.append(
-                f"config.json RZ 路径 {len(rz)} 条（应为 {len(ALL_TRACKS)}）")
-        for t in ALL_TRACKS:
-            hit = [v for v in o["paths"].values()
-                   if v and v[0].endswith("/" + t["name"])]
-            if not hit:
-                problems.append(f"config.json 缺路径 {t['name']}")
-        for t in ALL_TRACKS:
-            if t["uuid"] not in o["uuids"]:
-                problems.append(f"config.json uuids 缺 {t['uuid']}")
-    except Exception as ex:
-        problems.append(f"JSON 解析/一致性检查失败：{ex}")
+                elif idx != v:
+                    problems.append(f"{t['name']} 下标错位：枚举={v} Musics={idx}")
+    except Fail as ex:
+        problems.append(str(ex))
 
-    # 资源文件
+    # manifest
+    mp = os.path.join(repo, "docs", "audio", "manifest.json")
+    if os.path.exists(mp):
+        man = json.loads(read_text(mp))
+        for t in ALL_TRACKS:
+            k = manifest_key(t)
+            if k not in man:
+                problems.append(f"manifest 缺 {k}")
+            elif man[k] != audio_rel(t):
+                problems.append(f"manifest {k} 路径不对：{man[k]}")
+    else:
+        problems.append("缺 audio/manifest.json")
+
+    # 音频文件
     for t in ALL_TRACKS:
-        sub = t["uuid"][:2]
-        ip = os.path.join(repo, "docs", "assets", "resources", "import", sub,
-                          t["uuid"] + ".json")
-        op = os.path.join(repo, "docs", "assets", "resources", "native", sub,
-                          t["uuid"] + ".mp3")
-        if not os.path.exists(ip):
-            problems.append(f"缺 import json：{t['uuid']}.json")
-        if not os.path.exists(op):
-            problems.append(f"缺 mp3：{t['uuid']}.mp3")
+        if not os.path.exists(audio_abs(repo, t)):
+            problems.append(f"缺音频 {audio_rel(t)}")
 
-    if verbose:
-        if problems:
-            print("校验未通过：")
-            for p in problems:
-                print("  ✗", p)
-        else:
-            print(f"✅ 校验全部通过（index.js 改动齐全 + "
-                  f"{len(ALL_TRACKS)} 条音轨的枚举/下标/路径/资源）")
+    if problems:
+        print(f"❌ {len(problems)} 个问题：")
+        for p in problems:
+            print("   " + p)
     return problems
 
 
-# --------------------------------------------------------------------------
-# 主流程
-# --------------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description="重放 MiniGame_C 音乐定制")
-    ap.add_argument("--repo", default=os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))))
+    here = os.path.dirname(os.path.abspath(__file__))
+    ap = argparse.ArgumentParser(description="重放 RemadeZombotany（MiniGame_C）音乐定制")
+    ap.add_argument("--repo", default=os.path.dirname(os.path.dirname(here)))
     ap.add_argument("--check", action="store_true", help="只看会改什么，不落盘")
     ap.add_argument("--verify", action="store_true", help="只校验当前状态")
-    ap.add_argument("--gen-import", action="store_true", help="重建 import/*.json")
+    ap.add_argument("--gen-import", action="store_true",
+                    help="顺便迁移音频文件（从旧 native/ 复制）")
     args = ap.parse_args()
 
     repo = os.path.abspath(args.repo)
@@ -777,47 +564,49 @@ def main():
     if args.verify:
         return 0 if not verify(repo) else 1
 
-    js_p = os.path.join(repo, "docs", "assets", "main", "index.js")
-    cfg_p = os.path.join(repo, "docs", "assets", "resources", "config.json")
-    mj_p = os.path.join(repo, "docs", "assets", "resources", "import", "0a",
-                        "0a278bb49.json")
-
     try:
-        for path, fn, label in [(js_p, patch_index_js, "index.js"),
-                                (cfg_p, patch_config_json, "config.json"),
-                                (mj_p, patch_music_json, "0a278bb49.json")]:
-            if not os.path.exists(path):
-                raise Fail(f"文件不存在：{path}")
-            src = read_text(path)
-            dst, changes, touched = fn(src, dry=args.check)
-            print(f"── {label} ──")
-            for name, desc in changes:
-                print(f"   {name:28s} {desc}")
-            if touched and not args.check:
-                write_text(path, dst)
-                print(f"   → 已写入（{len(src):,} → {len(dst):,} 字符）")
-            elif touched:
-                print(f"   → dry-run，未写入（将 {len(src):,} → {len(dst):,} 字符）")
-            print()
-
-        print("── 每个世界的 Victory 音频 ──")
-        for name, desc in ensure_victory_mp3(repo, dry=args.check):
+        js_p = os.path.join(repo, "docs", "assets", "main", "index.js")
+        src = read_text(js_p)
+        dst, changes, touched = patch_index_js(src)
+        print("── index.js ──")
+        for name, desc in changes:
             print(f"   {name:28s} {desc}")
+        if touched and not args.check:
+            write_text(js_p, dst)
+            print(f"   → 已写入（{len(src):,} → {len(dst):,} 字符）")
+        elif touched:
+            print(f"   → dry-run，未写入（将 {len(src):,} → {len(dst):,} 字符）")
         print()
 
-        if args.gen_import:
-            print("── import/*.json ──")
-            for name, desc in gen_import_json(repo, dry=args.check):
-                print(f"   {name:28s} {desc}")
-            print()
+        mj_path, mj_src = find_musics_json(repo)
+        mj_dst, mchanges, mtouched = patch_musics(repo, mj_src)
+        print(f"── Musics（{os.path.relpath(mj_path, repo)}）──")
+        for name, desc in mchanges:
+            print(f"   {name:28s} {desc}")
+        if mtouched and not args.check:
+            write_text(mj_path, mj_dst)
+            print(f"   → 已写入（{len(mj_src):,} → {len(mj_dst):,} 字符）")
+        elif mtouched:
+            print(f"   → dry-run，未写入")
+        print()
 
-        miss = check_mp3(repo)
-        if miss:
-            print("⚠️  以下 mp3 不在位（需要从 git 历史恢复）：")
-            for name, rel in miss:
-                print(f"   {name:14s} {rel}")
-            print("   恢复：git checkout <含音乐的提交> -- docs/assets/resources/native/")
-            print()
+        man_p = os.path.join(repo, "docs", "audio", "manifest.json")
+        man_src = read_text(man_p)
+        man_dst, achanges, atouched = patch_manifest(repo)
+        print("── audio/manifest.json ──")
+        for name, desc in achanges:
+            print(f"   {name:28s} {desc}")
+        if atouched and not args.check:
+            write_text(man_p, man_dst)
+            print(f"   → 已写入（{len(man_src):,} → {len(man_dst):,} 字符）")
+        elif atouched:
+            print("   → dry-run，未写入")
+        print()
+
+        print("── 音频文件 ──")
+        for name, desc in migrate_audio(repo, dry=args.check):
+            print(f"   {name:28s} {desc}")
+        print()
 
     except Fail as ex:
         print(f"❌ {ex}")
@@ -828,10 +617,12 @@ def main():
         return 0
 
     print("── 最终校验 ──")
-    problems = verify(repo)
     print()
+    problems = verify(repo)
     if problems:
         return 1
+    print(f"✅ 校验通过（{len(ALL_TRACKS)} 条 RemadeZombotany 音轨）")
+    print()
     print("完成。")
     return 0
 

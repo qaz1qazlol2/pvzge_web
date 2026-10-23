@@ -339,23 +339,54 @@ python -X utf8 tools/xxx.py    # 单次
 
 拆结算曲是为了**能逐条替换**：原来所有世界共用 `RZ_Victory`，改一次影响全部。
 现在 12 条是独立拷贝，`RZ_Victory` 自己保留为引擎 switch 的 `default` 兜底。
-下标/索引对应关系：主音轨 `Musics` 260..272 / uuids 11507..11519；
-结算曲 `Musics` 273..284 / uuids 11520..11531（`MusicAmount=285`）。
 换任何一条都用同一个命令，`--list` 能看到全部 25 条。
+
+> **这套音轨属于 RemadeZombotany**（内部类型字符串 `MiniGame_C`，枚举 `MiniGameC=24`）。
+> 它是一套**完全独立的曲库**，不复用上游的 `UB_*`（极限战斗）/ `MG_*`（演示小游戏）/
+> `VIC_*`（上游按世界结算曲）任何一条 —— 所以改我们的音乐绝不会影响上游模式。
+
+### 9.0 游戏 0.16.0 的架构变化（重要）
+
+0.16.0 把音频链路整个重做了。**0.14.0 及以前的路径和字段全部作废**：
+
+| 项目 | 0.14.0 | 0.16.0 |
+|---|---|---|
+| 音频位置 | `resources/native/<uuid>.mp3` | `audio/Music/Game/<世界>/*.mp3` |
+| 路径注册 | `config.json` 的 `uuids` + `paths` | `audio/manifest.json`（key → 相对路径） |
+| Musics 数组 | `import/0a/0a278bb49.json` | **`import/0d/0d4cac202.json`** |
+| Musics 条目 | `{name, path, world, type}` | **`{name, tauri, musicLength}`** |
+| 播放 | Cocos `AudioSource` | `game-audio.js` 的 `AudioEngine`（`<audio>` 池） |
+
+调用链变成：
+
+```
+MusicEnum(数字) → bgms[i] {tauri, musicLength}
+                → manifest[tauri] → audio/<相对路径>
+```
+
+**两个连带影响**：
+
+1. `import/<uuid>.json`（Cocos AudioClip 描述）**不再是必需的** —— 0.16.0 用 `<audio>` 播。
+   旧的那 25 个 `import/b7/*.json` 留着不影响运行，但也不起作用了。
+2. Musics 所在的文件名是**内容哈希**，上游每次重编译都会变。所以 `apply_music.py`
+   不写死路径，而是在 `import/` 里搜索 `"Musics":[` 唯一出现的位置。
+
+我们的定制音频放在**独立目录** `audio/Music/inGame/RZ_<名字>/`，
+manifest key 加 `rk_` 前缀 —— 与上游的 `Music/Game/<世界>/` 和 `Music_<...>` key 完全隔离。
 
 ### 9.1 统一规格（house spec）
 
-**先分清来源，再谈统一。** 13 条 RZ 音轨其实是两类东西：
+**先分清来源，再谈统一。** 25 条 RZ 音轨其实是两类东西：
 
 | 来源 | 条数 | 判据 | 该怎么办 |
 |---|---|---|---|
-| **自制轨** | 3（Egypt / Pirate / Beach） | `musicLength` 被改成循环点（182.5） | **这才是要统一的对象** |
-| **官方原声** | 10 | `musicLength` 仍是原值（181 / Victory 3） | **保持原样 = 忠实官方** |
+| **自制轨** | 4（Egypt / Pirate / Beach / Iceage） | `musicLength` 被改成循环点（182.5） | **这才是要统一的对象** |
+| **官方原声** | 21 | `musicLength` 仍是原值（181 / 结算曲 3） | **保持原样 = 忠实官方** |
 
-官方那 10 条与官方 `UB_*` 同源，它们的响度差异是**官方母带本身就有的**
+官方那些与官方 `UB_*` 同源，它们的响度差异是**官方母带本身就有的**
 （官方 UB 集跨曲 −10.5 ~ −17.7 LUFS，极差 7.2 LU）。把它们"统一"了反而是偏离官方，
 还白叠一代重编码损失。所以两个工具都**默认排除官方原声**，要动得显式加
-`--include-official`。判据与工作区的 `rz_map_check.py` 同一套，保证口径一致。
+`--include-official`。
 
 自制轨对齐的口径：
 
