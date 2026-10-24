@@ -544,6 +544,17 @@ def patch_index_js(js):
     for t in CYS_TRACKS:
         cys_map.setdefault(t["fam"], {})[t["cys_world"]] = t["name"]
 
+    # ---- Eighties 别名 ----
+    # `case 116`（Eighties 世界）查表用的是 `.Eighties` 这个键，
+    # 但 CYS_TRACKS 只生成了 `Ballad`，所以以前一直落到 `Fallback`。
+    # 外部补丁同样把 Eighties 归一到 Ballad（patcher.js 第 816 行）。
+    #
+    # 这里只在**表里加别名**，不新增音轨条目 ——
+    # 指向的还是 *_CYS_Ballad 那一条，下标零影响。
+    for _fam in ("UB", "MG", "ZBT"):
+        if "Ballad" in cys_map.get(_fam, {}):
+            cys_map[_fam]["Eighties"] = cys_map[_fam]["Ballad"]
+
     js, ch = _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes)
     changes.extend(ch)
 
