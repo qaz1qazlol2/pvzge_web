@@ -877,11 +877,27 @@ def _patch_cys(js, EN, SORT, WORLD, SORT_MEMBER, cys_map, changes):
     #
     # 这里用同样的条件，只是把「cys 标志」换成「目标是 UB/MG/RemadeZombotany」。
     # 插在 if 的条件序列里（逗号表达式），是表达式位，安全。
+    # ⚠️ 必须把 Victory / Lose / Leave 也算进来。
+    #
+    # 这三个是「终态」——离开战斗时 e 会变成它们。
+    # 如果只在 UB/MG/ZBT 时清 isJam，Jam 关打到一半就再也不会清，
+    # 紧接着的 `e!=current && !this.isJam` 直接为 false，
+    # switchMusicSort 原样返回，switchMusic 压根没进 ——
+    # 表现就是「Jam 关结算/失败没有音乐」。
+    #
+    # 用户 2026-10-24 实测：只有切过音乐才复现，
+    # 因为没切时 e == currentMusicSort，第一个条件就短路了。
+    #
+    # 不能一律清 isJam —— Jam 世界内部切风格（Ballad→Punk）要保持 true。
     jam_guard = (f"e!=this.currentMusicSort&&(e=={SORT}.UltimateBattle"
-                 f"||e=={SORT}.DemonstrateMinigame||e=={SORT}.{SORT_MEMBER})"
+                 f"||e=={SORT}.DemonstrateMinigame||e=={SORT}.{SORT_MEMBER}"
+                 f"||e=={SORT}.Victory||e=={SORT}.Lose||e=={SORT}.Leave)"
                  f"&&(this.isJam=!1),")
-    if jam_guard in js:
-        out.append(("S9g Jam 放行", "已存在，跳过"))
+    _jam_done = (f"e=={SORT}.Victory" in js
+                 and f"e=={SORT}.Lose" in js
+                 and f"e!=this.currentMusicSort&&(e=={SORT}.UltimateBattle" in js)
+    if _jam_done:
+        out.append(("S9g Jam 放行", "已含 Victory/Lose/Leave，跳过"))
     else:
         anchor = "void 0===_&&(_=!0),e!=this.currentMusicSort&&!this.isJam){"
         if anchor not in js:
