@@ -9,22 +9,6 @@ export class AudioEngine {
         this.pool = [];
         this.nextId = 1;
         this.byId = new Map();
-        // 这些 clip 只允许一份在播。Pinata 的循环曲会被 bundle 里
-        // 两条路径重复启动（原版 bug），在这里兜底，避免叠音。
-        // 只列循环曲，普通音效不去重 —— 它们本来就要多实例。
-        // Pinata 有 6 种主题，每种一套 Intro/Loop/Outro。
-        // 全部 Loop 都要独占，否则非 default 的主题（万圣节等）照样会叠。
-        // summer 复用 Birthdayz 的音频，所以只需列 5 个不同的 key。
-        this.dedupeNames = new Set([
-            'Music_Pinata_PartyLoop',       // default
-            'Music_Pinata_HalloweenLoop',   // halloween
-            'Music_Pinata_BirthdayzLoop',   // birthday + summer
-            'Music_Pinata_FeastivusLoop',   // feastivus
-            'Music_Pinata_SenorLoop',       // twist
-        ]);
-        // 去重名单里每个名字绑定一个固定 slot，永不参与池分配，
-        // 也不被 cleanupFinished 回收。一对一 ⇒ 不可能出现第二个元素。
-        this.dedicated = new Map();
     }
 
     async init() {
@@ -35,7 +19,6 @@ export class AudioEngine {
             this.pool.push({
                 el: el,
                 id: null,
-                name: null,
                 playing: false,
                 fading: false,
                 speed: 1,
@@ -51,83 +34,15 @@ export class AudioEngine {
         return this.manifest[name] ?? null;
     }
 
-    getFreeSlot(name) {
-        const free = this.pool.find(s => !s.playing && !s.dedicated);
-        if (free) return free;
-
-        // 池满了。以前这里直接返回 null，调用方就丢弃音效 ——
-        // 一旦池被占满，玩家听到的就是「音效变少了」。
-        // 改成抢一个最接近播完的一次性音效 slot。
-        // 绝不能抢 dedupeNames 里的循环曲，否则会把背景循环掐断。
-        let victim = null;
-        for (const s of this.pool) {
-            if (!s.playing) continue;
-            if (s.dedicated) continue;
-            if (!victim || s.el.currentTime > victim.el.currentTime) victim = s;
-        }
-        if (victim) {
-            this.releaseSlot(victim);
-            return victim;
-        }
-        console.warn('[audio] pool exhausted, drop:', name);
-        return null;
-    }
-
-    // 停止指定名字的所有实例，返回停掉的个数。
-    stopByName(name) {
-        let n = 0;
-        for (const slot of this.pool) {
-            if (slot.playing && slot.name === name) {
-                this.releaseSlot(slot);
-                n++;
-            }
-        }
-        return n;
-    }
-
-    // 取（必要时创建）某名字的专属 slot。只建一次，之后永远复用。
-    _dedicatedSlot(name) {
-        let slot = this.dedicated.get(name);
-        if (slot) return slot;
-
-        const el = new Audio();
-        el.preload = 'auto';
-        el.preservesPitch = false;
-        slot = {
-            el: el,
-            id: null,
-            name: null,
-            playing: false,
-            fading: false,
-            speed: 1,
-            volume: DEFAULT_VOLUME,
-            restartBeforeEnd: null,
-            restartTimer: null,
-            fadeTimer: null,
-            dedicated: name,
-        };
-        this.dedicated.set(name, slot);
-        return slot;
+    getFreeSlot() {
+        return this.pool.find(s => !s.playing) || null;
     }
 
     play(name, speed = 1, volume = DEFAULT_VOLUME) {
-        let slot;
-        if (this.dedupeNames.has(name)) {
-            slot = this._dedicatedSlot(name);
-            // 专属 slot 已在播：只更新参数，绝不开第二个。
-            if (slot.playing && !slot.el.paused) {
-                slot.volume = Math.min(1, Math.max(0, volume));
-                slot.el.volume = slot.volume;
-                slot.el.playbackRate = speed;
-                slot.speed = speed;
-                return slot.id;
-            }
-        } else {
-            slot = this.getFreeSlot(name);
-            if (!slot) {
-                console.warn('[audio] pool exhausted, drop:', name);
-                return null;
-            }
+        const slot = this.getFreeSlot();
+        if (!slot) {
+            console.warn('[audio] pool exhausted, drop:', name);
+            return null;
         }
 
         const relPath = this.nameToPath(name);
@@ -148,7 +63,6 @@ export class AudioEngine {
         el.volume = Math.min(1, Math.max(0, volume));
 
         slot.id = this.nextId++;
-        slot.name = name;
         slot.playing = true;
         slot.fading = false;
         slot.speed = speed;
@@ -174,7 +88,6 @@ export class AudioEngine {
     releaseSlot(slot) {
         if (!slot.playing) return;
         slot.playing = false;
-        slot.name = null;
         slot.fading = false;
         slot.restartBeforeEnd = null;
 
@@ -313,7 +226,6 @@ export class AudioEngine {
     cleanupFinished() {
         let count = 0;
         for (const slot of this.pool) {
-            if (slot.dedicated) continue;
             if (!slot.playing && slot.el.src) {
                 slot.el.removeAttribute('src');
                 slot.el.load();
