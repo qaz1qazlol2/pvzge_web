@@ -472,6 +472,16 @@ def patch_index_js(js):
         vcases = "".join(
             f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
             for t in VICTORY_TRACKS if t["world_enum"])
+        # ⚠️ Jam 世界（炫光魔音游）的 worldMusic 会随音箱僵尸切风格，
+        #    变成 Ballad/Punk/Pop/Rap/Eightbit/Metal —— 这六个名字
+        #    在 VICTORY_TRACKS 里没有对应 world_enum，必须手工补，
+        #    否则全部落到 default（ZBT_Victory 兜底），
+        #    表现就是「Jam 关结算放的是通用曲」。
+        #
+        # 六个风格统一用 ZBT_Eighties_Victory（用户 2026-10-24 明确）。
+        for _jam in ("Ballad", "Punk", "Pop", "Rap", "Eightbit", "Metal"):
+            vcases += (f'case {WORLD}.{_jam}:u={EN}.ZBT_Eighties_Victory;'
+                       f'break;')
         block = (f'if({sort_var}=={SORT}.Victory&&window.__mts=="MiniGame_C")'
                  f'{{switch({world_var}){{{vcases}'
                  f'default:u={EN}.{FALLBACK_VICTORY};}}'
