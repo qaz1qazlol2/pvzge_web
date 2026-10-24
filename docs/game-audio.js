@@ -41,8 +41,26 @@ export class AudioEngine {
         return this.manifest[name] ?? null;
     }
 
-    getFreeSlot() {
-        return this.pool.find(s => !s.playing) || null;
+    getFreeSlot(name) {
+        const free = this.pool.find(s => !s.playing);
+        if (free) return free;
+
+        // 池满了。以前这里直接返回 null，调用方就丢弃音效 ——
+        // 一旦池被占满，玩家听到的就是「音效变少了」。
+        // 改成抢一个最接近播完的一次性音效 slot。
+        // 绝不能抢 dedupeNames 里的循环曲，否则会把背景循环掐断。
+        let victim = null;
+        for (const s of this.pool) {
+            if (!s.playing) continue;
+            if (s.name && this.dedupeNames.has(s.name)) continue;
+            if (!victim || s.el.currentTime > victim.el.currentTime) victim = s;
+        }
+        if (victim) {
+            this.releaseSlot(victim);
+            return victim;
+        }
+        console.warn('[audio] pool exhausted, drop:', name);
+        return null;
     }
 
     // 停止指定名字的所有实例，返回停掉的个数。
@@ -58,9 +76,22 @@ export class AudioEngine {
     }
 
     play(name, speed = 1, volume = DEFAULT_VOLUME) {
-        if (this.dedupeNames.has(name)) this.stopByName(name);
+        // 去重名单里的循环曲：已有实例就复用，绝不新建。
+        // releaseSlot 里的 el.load() 是异步的，销毁再重建会留下
+        // 「旧的在收尾、新的已开播」的窗口，实测会叠音。
+        if (this.dedupeNames.has(name)) {
+            for (const live of this.pool) {
+                if (live.playing && live.name === name) {
+                    live.volume = Math.min(1, Math.max(0, volume));
+                    live.el.volume = live.volume;
+                    live.el.playbackRate = speed;
+                    live.speed = speed;
+                    return live.id;
+                }
+            }
+        }
 
-        const slot = this.getFreeSlot();
+        const slot = this.getFreeSlot(name);
         if (!slot) {
             console.warn('[audio] pool exhausted, drop:', name);
             return null;
