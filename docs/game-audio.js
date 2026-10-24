@@ -15,6 +15,9 @@ export class AudioEngine {
         this.dedupeNames = new Set([
             'Music_Pinata_PartyLoop',
         ]);
+        // 去重名单里每个名字绑定一个固定 slot，永不参与池分配，
+        // 也不被 cleanupFinished 回收。一对一 ⇒ 不可能出现第二个元素。
+        this.dedicated = new Map();
     }
 
     async init() {
@@ -42,7 +45,7 @@ export class AudioEngine {
     }
 
     getFreeSlot(name) {
-        const free = this.pool.find(s => !s.playing);
+        const free = this.pool.find(s => !s.playing && !s.dedicated);
         if (free) return free;
 
         // 池满了。以前这里直接返回 null，调用方就丢弃音效 ——
@@ -52,7 +55,7 @@ export class AudioEngine {
         let victim = null;
         for (const s of this.pool) {
             if (!s.playing) continue;
-            if (s.name && this.dedupeNames.has(s.name)) continue;
+            if (s.dedicated) continue;
             if (!victim || s.el.currentTime > victim.el.currentTime) victim = s;
         }
         if (victim) {
@@ -75,26 +78,49 @@ export class AudioEngine {
         return n;
     }
 
-    play(name, speed = 1, volume = DEFAULT_VOLUME) {
-        // 去重名单里的循环曲：已有实例就复用，绝不新建。
-        // releaseSlot 里的 el.load() 是异步的，销毁再重建会留下
-        // 「旧的在收尾、新的已开播」的窗口，实测会叠音。
-        if (this.dedupeNames.has(name)) {
-            for (const live of this.pool) {
-                if (live.playing && live.name === name) {
-                    live.volume = Math.min(1, Math.max(0, volume));
-                    live.el.volume = live.volume;
-                    live.el.playbackRate = speed;
-                    live.speed = speed;
-                    return live.id;
-                }
-            }
-        }
+    // 取（必要时创建）某名字的专属 slot。只建一次，之后永远复用。
+    _dedicatedSlot(name) {
+        let slot = this.dedicated.get(name);
+        if (slot) return slot;
 
-        const slot = this.getFreeSlot(name);
-        if (!slot) {
-            console.warn('[audio] pool exhausted, drop:', name);
-            return null;
+        const el = new Audio();
+        el.preload = 'auto';
+        el.preservesPitch = false;
+        slot = {
+            el: el,
+            id: null,
+            name: null,
+            playing: false,
+            fading: false,
+            speed: 1,
+            volume: DEFAULT_VOLUME,
+            restartBeforeEnd: null,
+            restartTimer: null,
+            fadeTimer: null,
+            dedicated: name,
+        };
+        this.dedicated.set(name, slot);
+        return slot;
+    }
+
+    play(name, speed = 1, volume = DEFAULT_VOLUME) {
+        let slot;
+        if (this.dedupeNames.has(name)) {
+            slot = this._dedicatedSlot(name);
+            // 专属 slot 已在播：只更新参数，绝不开第二个。
+            if (slot.playing && !slot.el.paused) {
+                slot.volume = Math.min(1, Math.max(0, volume));
+                slot.el.volume = slot.volume;
+                slot.el.playbackRate = speed;
+                slot.speed = speed;
+                return slot.id;
+            }
+        } else {
+            slot = this.getFreeSlot(name);
+            if (!slot) {
+                console.warn('[audio] pool exhausted, drop:', name);
+                return null;
+            }
         }
 
         const relPath = this.nameToPath(name);
@@ -280,6 +306,7 @@ export class AudioEngine {
     cleanupFinished() {
         let count = 0;
         for (const slot of this.pool) {
+            if (slot.dedicated) continue;
             if (!slot.playing && slot.el.src) {
                 slot.el.removeAttribute('src');
                 slot.el.load();
