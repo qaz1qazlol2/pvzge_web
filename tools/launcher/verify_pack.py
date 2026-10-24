@@ -45,11 +45,36 @@ def main():
         "src/system.bundle.js",
         "assets/main/index.js",
         "assets/resources/config.json",
-        "assets/resources/import/0a/0a278bb49.json",
         "assets/resources/native/89/89b35a32.mp3",
         "assets/resources/native/b7/b7000006.mp3",
         "cocos-js/assets/spine-17c81aa0.wasm",
     ]
+    # Musics 的 import json 文件名是**内容哈希**，换版本就变，
+    # 不能写死在清单里。这里动态找当前那个。
+    #
+    # ⚠️ 必须读**全文**再匹配：Musics 在文件 2.6 MB 之后，
+    #    只读前几 KB 永远找不到。
+    imp_dir = os.path.join(game, "assets", "resources", "import")
+    musics_rel = None
+    if os.path.isdir(imp_dir):
+        biggest = None
+        for r, _, fs in os.walk(imp_dir):
+            for fn in fs:
+                if not fn.endswith(".json"):
+                    continue
+                fp = os.path.join(r, fn)
+                try:
+                    with open(fp, "rb") as fh:
+                        if b'"Musics":[' in fh.read():
+                            sz = os.path.getsize(fp)
+                            if biggest is None or sz > biggest[0]:
+                                biggest = (sz, fp)
+                except OSError:
+                    pass
+        if biggest:
+            musics_rel = os.path.relpath(biggest[1], game).replace(os.sep, "/")
+            targets.append(musics_rel)
+
     ok = True
     print()
     print("%-48s %-4s %12s %12s  %s" % ("条目", "方法", "存储", "原始", "结果"))
@@ -57,8 +82,14 @@ def main():
     for rel in targets:
         e = entries.get(rel)
         if not e:
-            print("%-48s 缺失!!" % rel)
-            ok = False
+            # 磁盘上本来就没有的文件不算失败 —— 清单可能比游戏版本旧。
+            # 只有「磁盘有、归档里没有」才是真问题。
+            on_disk = os.path.isfile(os.path.join(game, rel.replace("/", os.sep)))
+            if on_disk:
+                print("%-48s 归档里缺失!!" % rel)
+                ok = False
+            else:
+                print("%-48s 磁盘也没有，跳过" % rel)
             continue
         _, off, slen, rawlen, method = e
         f.seek(off)

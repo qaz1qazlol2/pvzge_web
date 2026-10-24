@@ -31,10 +31,10 @@ import_track.py —— 把一段视频（或音频）换成某条 RZ 音轨。
 用法
 ----
     python import_track.py --list
-    python import_track.py --track RZ_Egypt --src "D:/videos/rz_egypt.mp4"
-    python import_track.py --track RZ_Egypt --src xx.mp4 --apply
-    python import_track.py --track RZ_Egypt --src xx.mp4 --start 12 --end 95 --apply
-    python import_track.py --track RZ_Egypt --src xx.mp4 --no-trim --apply
+    python import_track.py --track ZBT_Egypt --src "D:/videos/rz_egypt.mp4"
+    python import_track.py --track ZBT_Egypt --src xx.mp4 --apply
+    python import_track.py --track ZBT_Egypt --src xx.mp4 --start 12 --end 95 --apply
+    python import_track.py --track ZBT_Egypt --src xx.mp4 --no-trim --apply
 
 退出码：0 成功 / 1 失败 / 2 环境缺 ffmpeg
 """
@@ -102,7 +102,7 @@ def fmt_sec(v):
 def patch_apply_music(path, name, duration, music_len):
     """只改 apply_music.py 里**目标音轨那一行**的两个数字。
 
-    按行锚定（name="RZ_X"），不做全局替换 —— 免得改到别的音轨或别的地方。
+    按行锚定（name="ZBT_X"），不做全局替换 —— 免得改到别的音轨或别的地方。
     """
     with open(path, "rb") as f:
         raw = f.read()
@@ -133,7 +133,7 @@ def patch_apply_music(path, name, duration, music_len):
 def main():
     ap = argparse.ArgumentParser(description="把视频/音频换成某条 RZ 音轨")
     ap.add_argument("--repo", default=_ROOT)
-    ap.add_argument("--track", help="目标音轨名，如 RZ_Egypt")
+    ap.add_argument("--track", help="目标音轨名，如 ZBT_Egypt")
     ap.add_argument("--src", help="源文件（视频或音频）")
     ap.add_argument("--list", action="store_true", help="列出全部音轨")
     ap.add_argument("--apply", action="store_true", help="真的写回（默认只预览）")
@@ -169,7 +169,7 @@ def main():
                   f"{t['duration'] - t['music_len']:>8.3f}")
         print()
         if not args.track:
-            print("用法：python import_track.py --track RZ_Egypt --src <视频> [--apply]")
+            print("用法：python import_track.py --track ZBT_Egypt --src <视频> [--apply]")
         return 0
 
     if not args.src:
