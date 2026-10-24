@@ -12,8 +12,15 @@ export class AudioEngine {
         // 这些 clip 只允许一份在播。Pinata 的循环曲会被 bundle 里
         // 两条路径重复启动（原版 bug），在这里兜底，避免叠音。
         // 只列循环曲，普通音效不去重 —— 它们本来就要多实例。
+        // Pinata 有 6 种主题，每种一套 Intro/Loop/Outro。
+        // 全部 Loop 都要独占，否则非 default 的主题（万圣节等）照样会叠。
+        // summer 复用 Birthdayz 的音频，所以只需列 5 个不同的 key。
         this.dedupeNames = new Set([
-            'Music_Pinata_PartyLoop',
+            'Music_Pinata_PartyLoop',       // default
+            'Music_Pinata_HalloweenLoop',   // halloween
+            'Music_Pinata_BirthdayzLoop',   // birthday + summer
+            'Music_Pinata_FeastivusLoop',   // feastivus
+            'Music_Pinata_SenorLoop',       // twist
         ]);
         // 去重名单里每个名字绑定一个固定 slot，永不参与池分配，
         // 也不被 cleanupFinished 回收。一对一 ⇒ 不可能出现第二个元素。
