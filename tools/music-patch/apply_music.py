@@ -425,30 +425,94 @@ def patch_index_js(js):
         desc += [f"{a}→{b}(别名)" for a, b in alias_cases]
         changes.append(("S7b Jam 世界 case", "补充 " + ", ".join(desc)))
 
-    # ---- S8: Victory 也按世界选曲 ----
-    # 插在 UltimateBattle 那个 Victory 分支之后（它已 `break;`，后面是 case 20 标签），
-    # 同样是独立语句块，不碰 case 编号。
-    if re.search(r"currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
-                 + r"&&|currentMusicSort==" + re.escape(SORT) + r"\." + SORT_MEMBER
-                 + r"\)\{switch", js):
-        changes.append(("S8 Victory 按世界选曲", "已存在，跳过"))
+    # ---- S8: Victory 按世界选曲 ----
+    #
+    # ⚠️ 判定依据必须用 window.__mts（= this.levelDefinition.MusicType），
+    #    不能再用 this.currentMusicSort —— 那是**播放态**字段，
+    #    会被 hugeWaveMusic / switchMusic 收尾 / 对话流程改写，
+    #    结算时可能已经不是 MiniGame_C 了。
+    #
+    # 三家统一形态（顺序即执行顺序）：
+    #   ZBT  正向判定，命中 break、未命中自然下滑到 UB
+    #   UB   `next=20` 跳到 MG
+    #   MG   `next=26` 跳到 ZB
+    #
+    # ⚠️ ZBT 绝不能写 {t.next=N} —— 状态机里那是「跳到 case N」，
+    #    会跳过 UB 分支，让 UB 关卡放主线曲。
+    _mts_ok = f'window.__mts=="MiniGame_C"' in js
+    _zbt_block_re = re.compile(
+        r'if\([a-z$_][\w$]*==' + re.escape(SORT) + r'\.Victory&&'
+        r'(?:this\.currentMusicSort==' + re.escape(SORT) + r'\.' + SORT_MEMBER
+        + r'|window\.__mts=="MiniGame_C")\)\{switch\(' + re.escape(world_var)
+        + r'\)\{.*?default:u=' + re.escape(EN) + r'\.' + re.escape(FALLBACK_VICTORY)
+        + r';\}\}')
+
+    if _mts_ok:
+        changes.append(("S8 Victory 按世界选曲", "已用 __mts，跳过"))
     else:
-        anchor = f"u={EN}.UB_Victory,g=!1,s=1,t.next=270;break;"
-        pos = js.find(anchor)
-        if pos < 0:
-            raise Fail("S8 找不到 UltimateBattle 的 Victory 分支")
+        # 先摘掉旧块（它可能在 break 之后，是死代码）
+        old_block = None
+        m_old = re.search(
+            r'if\([a-z$_][\w$]*==' + re.escape(SORT) + r'\.Victory&&'
+            r'this\.currentMusicSort==' + re.escape(SORT) + r'\.' + SORT_MEMBER
+            + r'\)\{switch\(' + re.escape(world_var) + r'\)\{.*?'
+            r'default:u=' + re.escape(EN) + r'\.' + re.escape(FALLBACK_VICTORY)
+            + r';\}\}g=!1,s=1,t\.next=270;break\}', js, re.S)
+        if m_old:
+            old_block = m_old.group(0)
+            js = js[:m_old.start()] + js[m_old.end():]
+            changes.append(("S8", "移除旧的 currentMusicSort 版本"))
+
+        # 生成新块（内容照旧，只把条件换成 __mts）
         vcases = "".join(
             f'case {WORLD}.{t["world_enum"]}:u={EN}.{t["name"]};break;'
             for t in VICTORY_TRACKS if t["world_enum"])
-        block = (f'if({sort_var}=={SORT}.Victory&&this.currentMusicSort=='
-                 f'{SORT}.{SORT_MEMBER}){{switch({world_var}){{'
-                 f'{vcases}default:u={EN}.{FALLBACK_VICTORY};}}g=!1,s=1,'
-                 f't.next=270;break}}')
-        cut = pos + len(anchor)
-        js = js[:cut] + block + js[cut:]
-        changes.append(("S8 Victory 按世界选曲",
-                        f"插入 {len(VICTORY_TRACKS)} 个世界分支，"
-                        f"default 保留 {FALLBACK_VICTORY}"))
+        block = (f'if({sort_var}=={SORT}.Victory&&window.__mts=="MiniGame_C")'
+                 f'{{switch({world_var}){{{vcases}'
+                 f'default:u={EN}.{FALLBACK_VICTORY};}}'
+                 f'g=!1,s=1,t.next=270;break}}')
+
+        # 插到 UB 判定之前（不能在 break 之后）
+        ub_anchor = (f'if({sort_var}!={SORT}.Victory||this.currentMusicSort!='
+                     f'{SORT}.UltimateBattle){{t.next=20;break}}')
+        if ub_anchor in js:
+            js = js.replace(ub_anchor, block + ub_anchor, 1)
+            # 顺手把 UB 判定换掉
+            js = js.replace(
+                ub_anchor,
+                f'if({sort_var}!={SORT}.Victory||window.__mts!="MiniGame_A")'
+                f'{{t.next=20;break}}', 1)
+            changes.append(("S8", f"ZBT 块插到 UB 之前（{len(VICTORY_TRACKS)} 个世界）"))
+        else:
+            # 已经改过 UB 判定的情况：锚点用 __mts 版
+            ub_new = (f'if({sort_var}!={SORT}.Victory||window.__mts!="MiniGame_A")'
+                      f'{{t.next=20;break}}')
+            if ub_new in js:
+                js = js.replace(ub_new, block + ub_new, 1)
+                changes.append(("S8", f"ZBT 块插到 UB 之前（{len(VICTORY_TRACKS)} 个世界）"))
+            else:
+                raise Fail("S8 找不到 UltimateBattle 的 Victory 分支")
+
+    # MG 判定也换成 __mts
+    mg_old = (f'case 20:if({sort_var}!={SORT}.Victory||this.currentMusicSort!='
+              f'{SORT}.DemonstrateMinigame){{t.next=26;break}}')
+    mg_new = (f'case 20:if({sort_var}!={SORT}.Victory||window.__mts!="MiniGame_B")'
+              f'{{t.next=26;break}}')
+    if mg_old in js:
+        js = js.replace(mg_old, mg_new, 1)
+        changes.append(("S8", "MG 判定改用 __mts"))
+
+    # ---- S8a: 结算入口取样 __mts ----
+    head_old = '}else{if(this.gameWon=!0,J.waterall(),t)switch('
+    head_new = ('}else{if((window.__mts=(this.levelDefinition||{}).MusicType),'
+                'this.gameWon=!0,J.waterall(),t)switch(')
+    if 'window.__mts=(this.levelDefinition' in js:
+        changes.append(("S8a 取关卡类型", "已存在，跳过"))
+    elif head_old in js:
+        js = js.replace(head_old, head_new, 1)
+        changes.append(("S8a 取关卡类型", "结算入口取样 __mts"))
+    else:
+        changes.append(("S8a 取关卡类型", "⚠️ 找不到结算入口锚点"))
 
     # ---- S9: 选卡前奏（CYS）----
     # 0.16.0 里 CYS_Start 只服务「普通关卡」：levelController 给无 MusicType 的关卡
