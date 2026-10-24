@@ -81,7 +81,7 @@ TRACKS = [
     dict(name="ZBT_Kongfu",   world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000003", music_len=181,   duration=184.941),
     dict(name="ZBT_Future",   world="Future",   world_enum="Future",   src_uuid="b7000004", music_len=181,   duration=184.941),
     dict(name="ZBT_Dark",     world="Dark",     world_enum="Dark",     src_uuid="b7000005", music_len=181,   duration=184.941),
-    dict(name="ZBT_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=181, duration=184.941),
+    dict(name="ZBT_Beach",    world="Beach",    world_enum="Beach",    src_uuid="b7000006", music_len=181, duration=185.000),
     dict(name="ZBT_Iceage",   world="Iceage",   world_enum="Ice",      src_uuid="b7000007", music_len=181, duration=184.941),
     dict(name="ZBT_Lostcity", world="Lostcity", world_enum="Lostcity", src_uuid="b7000008", music_len=181,   duration=184.941),
     dict(name="ZBT_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
