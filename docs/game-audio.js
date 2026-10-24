@@ -9,6 +9,12 @@ export class AudioEngine {
         this.pool = [];
         this.nextId = 1;
         this.byId = new Map();
+        // 这些 clip 只允许一份在播。Pinata 的循环曲会被 bundle 里
+        // 两条路径重复启动（原版 bug），在这里兜底，避免叠音。
+        // 只列循环曲，普通音效不去重 —— 它们本来就要多实例。
+        this.dedupeNames = new Set([
+            'Music_Pinata_PartyLoop',
+        ]);
     }
 
     async init() {
@@ -19,6 +25,7 @@ export class AudioEngine {
             this.pool.push({
                 el: el,
                 id: null,
+                name: null,
                 playing: false,
                 fading: false,
                 speed: 1,
@@ -38,7 +45,21 @@ export class AudioEngine {
         return this.pool.find(s => !s.playing) || null;
     }
 
+    // 停止指定名字的所有实例，返回停掉的个数。
+    stopByName(name) {
+        let n = 0;
+        for (const slot of this.pool) {
+            if (slot.playing && slot.name === name) {
+                this.releaseSlot(slot);
+                n++;
+            }
+        }
+        return n;
+    }
+
     play(name, speed = 1, volume = DEFAULT_VOLUME) {
+        if (this.dedupeNames.has(name)) this.stopByName(name);
+
         const slot = this.getFreeSlot();
         if (!slot) {
             console.warn('[audio] pool exhausted, drop:', name);
@@ -63,6 +84,7 @@ export class AudioEngine {
         el.volume = Math.min(1, Math.max(0, volume));
 
         slot.id = this.nextId++;
+        slot.name = name;
         slot.playing = true;
         slot.fading = false;
         slot.speed = speed;
@@ -88,6 +110,7 @@ export class AudioEngine {
     releaseSlot(slot) {
         if (!slot.playing) return;
         slot.playing = false;
+        slot.name = null;
         slot.fading = false;
         slot.restartBeforeEnd = null;
 
