@@ -87,24 +87,29 @@ TRACKS = [
     dict(name="ZBT_Sky",      world="Sky",      world_enum="Sky",      src_uuid="b7000009", music_len=181,   duration=184.941),
     dict(name="ZBT_Dino",     world="Dino",     world_enum="Dino",     src_uuid="b700000a", music_len=181,   duration=184.941),
     dict(name="ZBT_Modern",   world="Modern",   world_enum="Modern",   src_uuid="b700000b", music_len=193,   duration=196.539),
-    dict(name="ZBT_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=3,     duration=6.024),
+    # ⚠️ 用补丁里的 ZBT_Victory.mp3（4.760s / 192k），
+    # musicLength 按补丁规则 = 实测时长 - 0.05。
+    dict(name="ZBT_Victory",  world="All",      world_enum=None,       src_uuid="b700000c", music_len=4.71,  duration=4.760),
 ]
 
 # 每个世界一条的结算曲。命名用口述简称（冰窟 → ZBT_IC_Victory）。
 # ZBT_Victory 保留作 switch 的 default 兜底。
 VICTORY_TRACKS = [
-    dict(name="ZBT_AE_Victory",  world="Egypt",    world_enum="Egypt",    src_uuid="b700000d", music_len=3, duration=6.024),
-    dict(name="ZBT_PI_Victory",  world="Pirate",   world_enum="Pirate",   src_uuid="b700000e", music_len=3, duration=6.024),
-    dict(name="ZBT_COW_Victory", world="Cowboy",   world_enum="Cowboy",   src_uuid="b700000f", music_len=3, duration=6.024),
-    dict(name="ZBT_KF_Victory",  world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000010", music_len=3, duration=6.024),
-    dict(name="ZBT_FF_Victory",  world="Future",   world_enum="Future",   src_uuid="b7000011", music_len=3, duration=6.024),
-    dict(name="ZBT_DA_Victory",  world="Dark",     world_enum="Dark",     src_uuid="b7000012", music_len=3, duration=6.024),
-    dict(name="ZBT_BWB_Victory", world="Beach",    world_enum="Beach",    src_uuid="b7000013", music_len=3, duration=6.024),
-    dict(name="ZBT_IC_Victory",  world="Iceage",   world_enum="Ice",      src_uuid="b7000014", music_len=3, duration=6.024),
-    dict(name="ZBT_LC_Victory",  world="Lostcity", world_enum="Lostcity", src_uuid="b7000015", music_len=3, duration=6.024),
-    dict(name="ZBT_SK_Victory",  world="Sky",      world_enum="Sky",      src_uuid="b7000016", music_len=3, duration=6.024),
-    dict(name="ZBT_JM_Victory",  world="Dino",     world_enum="Dino",     src_uuid="b7000017", music_len=3, duration=6.024),
-    dict(name="ZBT_MD_Victory",  world="Modern",   world_enum="Modern",   src_uuid="b7000018", music_len=3, duration=6.024),
+    dict(name="ZBT_AE_Victory",  world="Egypt",    world_enum="Egypt",    src_uuid="b700000d", music_len=4.71, duration=4.760),
+    dict(name="ZBT_PI_Victory",  world="Pirate",   world_enum="Pirate",   src_uuid="b700000e", music_len=4.71, duration=4.760),
+    dict(name="ZBT_COW_Victory", world="Cowboy",   world_enum="Cowboy",   src_uuid="b700000f", music_len=4.71, duration=4.760),
+    dict(name="ZBT_KF_Victory",  world="Kongfu",   world_enum="Kongfu",   src_uuid="b7000010", music_len=4.71, duration=4.760),
+    dict(name="ZBT_FF_Victory",  world="Future",   world_enum="Future",   src_uuid="b7000011", music_len=4.71, duration=4.760),
+    dict(name="ZBT_DA_Victory",  world="Dark",     world_enum="Dark",     src_uuid="b7000012", music_len=4.71, duration=4.760),
+    dict(name="ZBT_BWB_Victory", world="Beach",    world_enum="Beach",    src_uuid="b7000013", music_len=4.71, duration=4.760),
+    dict(name="ZBT_IC_Victory",  world="Iceage",   world_enum="Ice",      src_uuid="b7000014", music_len=4.71, duration=4.760),
+    dict(name="ZBT_LC_Victory",  world="Lostcity", world_enum="Lostcity", src_uuid="b7000015", music_len=4.71, duration=4.760),
+    dict(name="ZBT_SK_Victory",  world="Sky",      world_enum="Sky",      src_uuid="b7000016", music_len=4.71, duration=4.760),
+    dict(name="ZBT_JM_Victory",  world="Dino",     world_enum="Dino",     src_uuid="b7000017", music_len=4.71, duration=4.760),
+    dict(name="ZBT_MD_Victory",  world="Modern",   world_enum="Modern",   src_uuid="b7000018", music_len=4.71, duration=4.760),
+    # Jam 世界（Eighties）专用结算曲。补丁里是 7.822s，比其他世界长。
+    # 用户 2026-10-24 明确：这条要在 Jam 世界用。
+    dict(name="ZBT_Eighties_Victory", world="Eighties", world_enum="Eighties", src_uuid="b7000019", music_len=7.77, duration=7.822),
 ]
 
 FALLBACK_VICTORY = "ZBT_Victory"
