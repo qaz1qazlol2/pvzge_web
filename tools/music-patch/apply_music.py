@@ -208,7 +208,57 @@ for _w in _CYS_COMMON + ["Ballad"] + ["Tutorial"]:
 CYS_TRACKS.append(dict(name="ZBT_CYS_Fallback", fam="ZBT",
                        cys_world="Fallback", music_len=8.7, duration=8.75))
 
-ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS + CYS_TRACKS
+
+# --------------------------------------------------------------------------
+# 四类家族的专属 Lose（失败）曲
+# --------------------------------------------------------------------------
+# 用户 2026-10-24：先做 UB / MG / ZBT 三类，LB 暂不做。
+#
+# 原生只有一个 LOSE_<世界>（14 条），四类共用。这里再给三类各加一套，
+# 判定时按 window.__mts 分派；Egypt / Sky / Tutorial 补丁无素材，
+# 落到各家族的通用 <FAM>_Lose 兜底。
+#
+# ⚠️ 追加在 CYS_TRACKS 之后，下沉末尾，不打乱已有下标。
+LOSE_TRACKS = [
+    # ---- UB ----
+    dict(name="UB_Lose", fam="UB", lose_world="Fallback", src_uuid="b7000020", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Pirate", fam="UB", lose_world="Pirate", world_enum="Pirate", src_uuid="b7000021", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Cowboy", fam="UB", lose_world="Cowboy", world_enum="Cowboy", src_uuid="b7000022", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Future", fam="UB", lose_world="Future", world_enum="Future", src_uuid="b7000023", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Dark", fam="UB", lose_world="Dark", world_enum="Dark", src_uuid="b7000024", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Beach", fam="UB", lose_world="Beach", world_enum="Beach", src_uuid="b7000025", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Iceage", fam="UB", lose_world="Iceage", world_enum="Ice", src_uuid="b7000026", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Lostcity", fam="UB", lose_world="Lostcity", world_enum="Lostcity", src_uuid="b7000027", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Kongfu", fam="UB", lose_world="Kongfu", world_enum="Kongfu", src_uuid="b7000028", music_len=6.2, duration=6.249),
+    dict(name="UB_Lose_Dino", fam="UB", lose_world="Dino", world_enum="Dino", src_uuid="b7000029", music_len=6.2, duration=6.249),
+
+    # ---- MG ----
+    dict(name="MG_Lose", fam="MG", lose_world="Fallback", src_uuid="b700002a", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Pirate", fam="MG", lose_world="Pirate", world_enum="Pirate", src_uuid="b700002b", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Cowboy", fam="MG", lose_world="Cowboy", world_enum="Cowboy", src_uuid="b700002c", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Future", fam="MG", lose_world="Future", world_enum="Future", src_uuid="b700002d", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Dark", fam="MG", lose_world="Dark", world_enum="Dark", src_uuid="b700002e", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Beach", fam="MG", lose_world="Beach", world_enum="Beach", src_uuid="b700002f", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Iceage", fam="MG", lose_world="Iceage", world_enum="Ice", src_uuid="b7000030", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Lostcity", fam="MG", lose_world="Lostcity", world_enum="Lostcity", src_uuid="b7000031", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Kongfu", fam="MG", lose_world="Kongfu", world_enum="Kongfu", src_uuid="b7000032", music_len=6.2, duration=6.249),
+    dict(name="MG_Lose_Dino", fam="MG", lose_world="Dino", world_enum="Dino", src_uuid="b7000033", music_len=6.2, duration=6.249),
+
+    # ---- ZBT ----
+    dict(name="ZBT_Lose", fam="ZBT", lose_world="Fallback", src_uuid="b7000034", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Pirate", fam="ZBT", lose_world="Pirate", world_enum="Pirate", src_uuid="b7000035", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Cowboy", fam="ZBT", lose_world="Cowboy", world_enum="Cowboy", src_uuid="b7000036", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Future", fam="ZBT", lose_world="Future", world_enum="Future", src_uuid="b7000037", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Dark", fam="ZBT", lose_world="Dark", world_enum="Dark", src_uuid="b7000038", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Beach", fam="ZBT", lose_world="Beach", world_enum="Beach", src_uuid="b7000039", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Iceage", fam="ZBT", lose_world="Iceage", world_enum="Ice", src_uuid="b700003a", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Lostcity", fam="ZBT", lose_world="Lostcity", world_enum="Lostcity", src_uuid="b700003b", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Dino", fam="ZBT", lose_world="Dino", world_enum="Dino", src_uuid="b700003d", music_len=7.03, duration=7.083),
+    dict(name="ZBT_Lose_Eighties", fam="ZBT", lose_world="Eighties", world_enum="Eighties", src_uuid="b700003e", music_len=9.95, duration=10.0),
+    dict(name="ZBT_Lose_Modern", fam="ZBT", lose_world="Modern", world_enum="Modern", src_uuid="b700003f", music_len=7.03, duration=7.083),
+]
+
+ALL_TRACKS = TRACKS + VICTORY_TRACKS + JAM_TRACKS + CYS_TRACKS + LOSE_TRACKS
 
 # 参与 switchMusic 的「世界 → 曲目」分派的音轨（含 Jam）
 WORLD_TRACKS = [t for t in (TRACKS + JAM_TRACKS) if t["world_enum"]]
@@ -528,6 +578,60 @@ def patch_index_js(js):
         changes.append(("S8a 取关卡类型", "结算入口取样 __mts"))
     else:
         changes.append(("S8a 取关卡类型", "⚠️ 找不到结算入口锚点"))
+
+    # ---- S8b: Lose 按家族分派 ----
+    #
+    # UB / MG / ZBT 三类各有自己的 Lose 曲（每世界一条 + 通用兜底）。
+    # 判定依据同样是 window.__mts。
+    #
+    # 插入位置：ZBT Victory 块之后、UB Victory 判定之前。
+    # 那段是 case 7 的 fall-through 区 —— `if(a==v.RemadeZombotany){...break}`
+    # 不成立时自然下滑到这里，可达。
+    #
+    # ⚠️ 绝不能放到 `case 82:` 标签之前 —— 那里在 case 76 的
+    #    `t.next=270;break;` 之后，是死代码（本项目栽过 3 次）。
+    _lose_key = 'window.__mts=="MiniGame_C"){switch(e){case w.Pirate:u=A.ZBT_Lose_Pirate'
+    if _lose_key in js:
+        changes.append(("S8b Lose 按家族分派", "已存在，跳过"))
+    else:
+        _lb_worlds = {
+            "ZBT": [("Pirate", "ZBT_Lose_Pirate"), ("Cowboy", "ZBT_Lose_Cowboy"),
+                    ("Future", "ZBT_Lose_Future"), ("Dark", "ZBT_Lose_Dark"),
+                    ("Beach", "ZBT_Lose_Beach"), ("Ice", "ZBT_Lose_Iceage"),
+                    ("Lostcity", "ZBT_Lose_Lostcity"), ("Dino", "ZBT_Lose_Dino"),
+                    ("Modern", "ZBT_Lose_Modern"), ("Eighties", "ZBT_Lose_Eighties"),
+                    ("Ballad", "ZBT_Lose_Eighties"), ("Punk", "ZBT_Lose_Eighties"),
+                    ("Pop", "ZBT_Lose_Eighties"), ("Rap", "ZBT_Lose_Eighties"),
+                    ("Eightbit", "ZBT_Lose_Eighties"), ("Metal", "ZBT_Lose_Eighties")],
+            "UB": [("Pirate", "UB_Lose_Pirate"), ("Cowboy", "UB_Lose_Cowboy"),
+                   ("Future", "UB_Lose_Future"), ("Dark", "UB_Lose_Dark"),
+                   ("Beach", "UB_Lose_Beach"), ("Ice", "UB_Lose_Iceage"),
+                   ("Lostcity", "UB_Lose_Lostcity"), ("Kongfu", "UB_Lose_Kongfu"),
+                   ("Dino", "UB_Lose_Dino")],
+            "MG": [("Pirate", "MG_Lose_Pirate"), ("Cowboy", "MG_Lose_Cowboy"),
+                   ("Future", "MG_Lose_Future"), ("Dark", "MG_Lose_Dark"),
+                   ("Beach", "MG_Lose_Beach"), ("Ice", "MG_Lose_Iceage"),
+                   ("Lostcity", "MG_Lose_Lostcity"), ("Kongfu", "MG_Lose_Kongfu"),
+                   ("Dino", "MG_Lose_Dino")],
+        }
+        _blocks = []
+        for _fam, _mts in (("ZBT", "MiniGame_C"), ("UB", "MiniGame_A"),
+                           ("MG", "MiniGame_B")):
+            _cases = "".join(f'case {WORLD}.{_w}:u={EN}.{_n};break;'
+                             for _w, _n in _lb_worlds[_fam])
+            _blocks.append(
+                f'if({sort_var}=={SORT}.Lose&&window.__mts=="{_mts}")'
+                f'{{switch({world_var}){{{_cases}'
+                f'default:u={EN}.{_fam}_Lose;}}'
+                f'g=!1,s=1,t.next=270;break}}')
+
+        _ub_anchor = (f'if({sort_var}!={SORT}.Victory||window.__mts!="MiniGame_A")'
+                      f'{{t.next=20;break}}')
+        if _ub_anchor not in js:
+            raise Fail("S8b 找不到 UB Victory 判定锚点")
+        js = js.replace(_ub_anchor, "".join(_blocks) + _ub_anchor, 1)
+        changes.append(("S8b Lose 按家族分派",
+                        f"ZBT 16 / UB 9 / MG 9 个 world + default 兜底"))
 
     # ---- S9: 选卡前奏（CYS）----
     # 0.16.0 里 CYS_Start 只服务「普通关卡」：levelController 给无 MusicType 的关卡
