@@ -2,6 +2,8 @@
 
 # 构建产物（build.sh 的默认输出目录）
 /dist/
+# 按分支分别构建时的独立输出目录：dist-zbtonly / dist-master ...
+/dist-*/
 /tools/**/target/
 /tools/**/gen/
 /tools/**/bin/
