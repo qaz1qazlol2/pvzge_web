@@ -19,10 +19,10 @@
     <!-- 图标：多尺寸 PNG，从游戏上游发布的 exe 里提取，见 tools/extract_icon.py -->
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <!-- @version 由 tools/sync_version.py 自动写入，勿手改；真源见 tools/README.md -->
-    <Version>0.16.0</Version>
-    <FileVersion>0.16.0.0</FileVersion>
-    <AssemblyVersion>0.16.0.0</AssemblyVersion>
-    <InformationalVersion>0.16.0</InformationalVersion>
+    <Version>0.16.1</Version>
+    <FileVersion>0.16.1.0</FileVersion>
+    <AssemblyVersion>0.16.1.0</AssemblyVersion>
+    <InformationalVersion>0.16.1</InformationalVersion>
     <!-- .NET 默认会把 git 提交哈希拼到 ProductVersion 后面（1.0.0+abc123）——关掉 -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- /@version -->
