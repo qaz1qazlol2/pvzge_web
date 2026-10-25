@@ -1,6 +1,6 @@
 [package]
 name = "pvzge"
-version = "0.14.0"
+version = "0.16.1"
 description = "PvZ2 Gardendless 单文件启动器（Tauri + WebView2）"
 edition = "2021"
 
