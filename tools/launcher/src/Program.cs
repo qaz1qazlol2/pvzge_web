@@ -620,7 +620,15 @@ namespace PvzgeLauncher
             base.OnShown(e);
             try
             {
-                var env = await CoreWebView2Environment.CreateAsync(null, _userDataFolder);
+                // WebView2 默认按 Chromium 自动播放策略：页面在没有用户交互前
+                // 不许出声（play() 抛 NotAllowedError）——表现为启动音乐不放、
+                // 控制台报 "The user didn't interact with the document first"。
+                // 这是个本机游戏，交互规则不该由浏览器策略决定，直接放开。
+                var envOptions = new CoreWebView2EnvironmentOptions
+                {
+                    AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required",
+                };
+                var env = await CoreWebView2Environment.CreateAsync(null, _userDataFolder, envOptions);
                 await _web.EnsureCoreWebView2Async(env);
                 var core = _web.CoreWebView2;
                 var s = core.Settings;
