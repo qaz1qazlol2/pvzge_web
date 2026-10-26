@@ -374,6 +374,60 @@ fn serve(src: &Source, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 
 // ---------------------------------------------------------------- main
 
+/// 存档导出：弹原生「另存为」对话框，把内容写到用户选的位置。
+///
+/// 不用 JS 侧的 `<a download>` —— WebView2 里那个没有对话框，
+/// 会静悄悄落到 Downloads，用户不知道存到哪了。
+///
+/// 也不用 `tauri-plugin-fs` —— 它的 scope 校验对「用户临时选中的任意路径」
+/// 不友好，还得额外放开通配权限。这里直接在 Rust 侧 std::fs 写，
+/// 路径就是对话框返回的，天然受用户控制。
+///
+/// 返回 true=已保存，false=用户取消。
+#[tauri::command]
+async fn save_text_file(
+    app: tauri::AppHandle,
+    default_name: String,
+    content: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&default_name)
+        .add_filter("JSON", &["json"])
+        .blocking_save_file();
+
+    let Some(file_path) = picked else {
+        return Ok(false); // 用户取消
+    };
+    let path = file_path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, content).map_err(|e| format!("写入失败: {e}"))?;
+    Ok(true)
+}
+
+/// 存档导入：弹原生「打开文件」对话框，读回文本内容。
+///
+/// 返回 None = 用户取消。
+#[tauri::command]
+async fn open_text_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json", "json5"])
+        .blocking_pick_file();
+
+    let Some(file_path) = picked else {
+        return Ok(None); // 用户取消
+    };
+    let path = file_path.into_path().map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
+    Ok(Some(text))
+}
+
 fn main() {
     let source = Arc::new(open_source());
     match &*source {
@@ -383,6 +437,9 @@ fn main() {
 
     let src_for_handler = source.clone();
     tauri::Builder::default()
+        // 原生文件对话框（存档导入/导出）
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![save_text_file, open_text_file])
         .register_asynchronous_uri_scheme_protocol(SCHEME, move |_ctx, request, responder| {
             let s = src_for_handler.clone();
             std::thread::spawn(move || {
@@ -400,6 +457,17 @@ fn main() {
                 .title("PvZ2 Gardendless")
                 .inner_size(1280.0, 760.0)
                 .min_inner_size(800.0, 600.0)
+                // WebView2 默认按 Chromium 自动播放策略：页面在用户交互前不许出声
+                // （play() 抛 NotAllowedError）——表现为启动音乐不放、控制台报
+                // "The user didn't interact with the document first"。
+                // 本机游戏不该受这条策略约束，直接放开。
+                //
+                // ⚠️ Tauri 默认会传 --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection，
+                //    设置 additional_browser_args 会**整体替换**它，所以这里要带上，别丢。
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                     --autoplay-policy=no-user-gesture-required",
+                )
                 .build()?;
             Ok(())
         })
