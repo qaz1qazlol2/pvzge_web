@@ -172,9 +172,15 @@ export class AudioEngine {
         if (!slot || slot.fading) return;
         slot.fading = true;
 
-        const startVol = slot.el.volume;
+        // 调用方常写 fadeOut() 不传时长（index.js 里有多处）。
+        // 那样 stepMs = undefined/30 = NaN，setInterval(NaN) 退化成「尽快跑」，
+        // 30 步在实测里 0.4 秒左右就跑完了 —— 既不是 0 也不是一个可预期的淡出。
+        // 两首曲子交接时（比如 MG 音乐 → Victory）这段没跑完的时间就是可闻的重叠。
+        // 这里给一个明确的默认值，让行为可预测。
+        const totalMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 600;
         const steps = 30;
-        const stepMs = durationMs / steps;
+        const stepMs = totalMs / steps;
+        const startVol = slot.el.volume;
         let i = 0;
 
         slot.fadeTimer = setInterval(() => {
